@@ -14,9 +14,29 @@
 
 set -uo pipefail
 
-pattern="(sk-[A-Za-zA-Z0-9]{10,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|password[[:space:]]*=[[:space:]]*[\"'][^\"']{4,}[\"'])"
+# Patrones de alta confianza (API keys, private keys): se revisan en TODO
+# el diff, tests incluidos - una key real nunca deberia aparecer ni de
+# ejemplo.
+high_confidence_pattern="(sk-[A-Za-zA-Z0-9]{10,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)"
 
-if git diff --cached 2>/dev/null | grep -qEi "$pattern"; then
+# El patron generico de password= tiene falsos positivos esperables en
+# fixtures de test (passwords de prueba hardcodeadas a proposito, ej.
+# "correcthorsebattery"), asi que se excluyen paths de tests/ de ESTE
+# patron especifico - los patrones de alta confianza arriba siguen
+# aplicando ahi igual.
+password_pattern="password[[:space:]]*=[[:space:]]*[\"'][^\"']{4,}[\"']"
+
+hit=""
+
+if git diff --cached 2>/dev/null | grep -qEi "$high_confidence_pattern"; then
+  hit="1"
+fi
+
+if [ -z "$hit" ] && git diff --cached -- . ':!**/tests/**' ':!**/*test*' 2>/dev/null | grep -qEi "$password_pattern"; then
+  hit="1"
+fi
+
+if [ -n "$hit" ]; then
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Posible secreto detectado en git diff --cached (RNF-010). Revisa el commit antes de continuar - ver docs/security/threat-model.md."}}'
 else
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'

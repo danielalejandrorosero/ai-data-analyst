@@ -8,10 +8,10 @@ from alembic import context
 from app.core.config import settings
 from app.db.base import Base
 
-# Los modelos de dominio se importan aca a medida que se crean (Fase 1 en
-# adelante) para que Base.metadata los conozca y `alembic revision
-# --autogenerate` los detecte. Ejemplo futuro:
-#   from app.domain.auth.models import Organization, User, Membership
+# Importa todos los modelos para que Base.metadata los conozca y
+# `alembic revision --autogenerate` los detecte. Nuevos modelos se agregan
+# a app/db/models/__init__.py, no aca.
+import app.db.models  # noqa: F401,E402
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
