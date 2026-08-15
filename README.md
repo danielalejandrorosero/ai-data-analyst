@@ -58,8 +58,8 @@ Ramas: `main` (estable) y `develop` (integración). Ver
 
 ## Instalación local
 
-Con Docker (recomendado, aún no probado end-to-end en esta máquina por falta de Docker
-local — si te falla algo avisá):
+Con Docker (recomendado; validado end-to-end — `api`/`postgres`/`redis`/`worker` arriba y
+`/health/ready` en 200):
 
 ```bash
 cp .env.example .env
