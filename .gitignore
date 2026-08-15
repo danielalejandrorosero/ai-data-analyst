@@ -1,0 +1,45 @@
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Claude Code (local, no versionado)
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Python (uv)
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.uv/
+
+# Node (pnpm)
+node_modules/
+dist/
+build/
+.vite/
+.pnpm-store/
+
+# Docker / infra
+infrastructure/**/data/
+infrastructure/**/*.log
+
+# Coverage / test artifacts
+coverage/
+htmlcov/
+.coverage
+playwright-report/
+test-results/
+
+# OS / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
