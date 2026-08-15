@@ -48,6 +48,14 @@ comparten el mismo código Python (modelos SQLAlchemy, servicios de dominio, SQL
 definición de agent tools) importado directamente — no existe un paquete `shared-contracts`
 separado. Ver [`adr/0001-monorepo-structure.md`](./adr/0001-monorepo-structure.md).
 
+En la práctica esto se implementa con un **uv workspace** en la raíz del repo: `backend/` y
+`workers/` son miembros del mismo workspace, comparten un único `uv.lock` y un único
+`.venv`, y `workers` declara `backend` como dependencia editable del workspace. El paquete
+instalable de `backend/` se llama `app`; el de `workers/` se llama `tasks` (no `app`,
+porque dos paquetes no pueden instalarse con el mismo nombre de módulo top-level en el
+mismo entorno) — así, código en `workers/tasks/*` hace `from app.domain... import ...`
+directamente.
+
 ## 3. Estructura del repositorio
 
 ```

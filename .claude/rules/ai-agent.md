@@ -1,7 +1,7 @@
 ---
 paths:
   - "backend/app/agent/**"
-  - "workers/app/tasks/**"
+  - "workers/tasks/**"
 ---
 
 # AI Agent runtime
