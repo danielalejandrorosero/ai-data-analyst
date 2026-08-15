@@ -5,7 +5,10 @@
 
 ## Estado del proyecto
 
-En Fase 0 (base del repositorio). Todavía no hay funcionalidad de aplicación implementada.
+Fase 0 (base del repositorio) + scaffolding inicial de backend/workers. Existe un FastAPI
+mínimo con health checks reales (`/health/live`, `/health/ready`) y un worker ARQ vacío,
+pero **todavía no hay funcionalidad de negocio** (auth, datasets, agente, etc. — eso es
+Fase 1 en adelante). El frontend todavía no tiene scaffolding.
 Ver el roadmap completo en [`docs/SRS.md`](docs/SRS.md#13-roadmap-de-implementación).
 
 ## Problema
@@ -55,13 +58,25 @@ Ramas: `main` (estable) y `develop` (integración). Ver
 
 ## Instalación local
 
-Pendiente — `docker-compose.yml` y el scaffolding de cada app se agregan en los siguientes
-pasos de Fase 0 / Fase 1. Cuando exista, el flujo será:
+Con Docker (recomendado, aún no probado end-to-end en esta máquina por falta de Docker
+local — si te falla algo avisá):
 
 ```bash
 cp .env.example .env
 docker compose up -d
 ```
+
+Sin Docker, corriendo el backend nativo (requiere `uv`, y Postgres/Redis disponibles por
+tu cuenta o vía `docker compose up postgres redis`):
+
+```bash
+cp .env.example .env
+uv sync
+uv run --package backend uvicorn app.main:app --reload
+```
+
+Verificación rápida: `curl http://localhost:8000/health/live` debe responder
+`{"status":"ok"}`.
 
 ## Demo / Screenshots
 
@@ -69,7 +84,18 @@ Pendiente — se agregará cuando exista UI funcional.
 
 ## Desarrollo local
 
-Pendiente — se documentará junto con el scaffolding de `backend/`, `frontend/` y `workers/`.
+`backend/` y `workers/` son miembros de un **uv workspace** (un solo `uv.lock`/`.venv` en
+la raíz). Comandos útiles desde la raíz del repo:
+
+```bash
+uv sync                                              # instala todo el workspace
+uv run --package backend pytest                      # tests de backend
+uv run --package backend ruff check backend/app       # lint
+uv run --package backend alembic revision --autogenerate -m "mensaje"
+uv run --package backend alembic upgrade head
+```
+
+`frontend/` todavía no tiene scaffolding — pendiente.
 
 ## Despliegue
 
