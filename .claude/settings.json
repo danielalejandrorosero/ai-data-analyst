@@ -7,5 +7,34 @@
       "Bash(docker compose ps)",
       "Bash(docker compose logs*)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit*)",
+            "command": "bash .claude/hooks/pre-commit-secret-scan.sh",
+            "timeout": 15,
+            "statusMessage": "Escaneando el diff staged en busca de secretos (RNF-010)..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/format-on-write.sh",
+            "timeout": 20,
+            "statusMessage": "Formateando/lintando archivo..."
+          }
+        ]
+      }
+    ]
   }
 }
