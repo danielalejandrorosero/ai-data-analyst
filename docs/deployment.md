@@ -19,6 +19,17 @@ El SRS **no fija** el proveedor/target concreto de staging/producción (VM propi
 específico, PaaS). Eso se decide y se documenta como ADR cuando exista una necesidad real
 de desplegar — no antes. Ver `.claude/skills/update-adr/SKILL.md`.
 
+**Nota de intención (2026-08-15, no es ADR todavía)**: el usuario planea desplegar el
+**frontend** en Vercel más adelante, cuando el proyecto esté más avanzado. Por eso, el
+pipeline de CI/CD de GitHub Actions (SRS sección 11.1) queda pospuesto por ahora — Vercel
+trae su propio build/deploy automático por push, así que un GitHub Actions completo podría
+terminar siendo redundante para el frontend. Esto **no** decide todavía qué pasa con
+backend/worker/postgres/redis/observabilidad (el SRS asume Docker Compose sobre una VM o
+servidor administrado para eso, sección 11) — Vercel no aloja ese tipo de stack. Cuando se
+retome este tema, formalizar como ADR (con `update-adr`) cubriendo: qué se despliega en
+Vercel, qué sigue en Docker Compose/VM, y cómo se conectan (CORS, URLs de API, variables de
+entorno del frontend).
+
 ## Scripts placeholder
 
 - `infrastructure/scripts/deploy-staging.sh`

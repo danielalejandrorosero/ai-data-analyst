@@ -42,6 +42,17 @@ Este repositorio separa deliberadamente tres capas de documentación:
 Monolito modular en Python (evita microservicios prematuros). Ver diagrama y detalle en
 [`docs/architecture.md`](docs/architecture.md).
 
+## Repositorio
+
+```bash
+git clone https://github.com/danielalejandrorosero/ai-data-analyst.git
+cd ai-data-analyst
+git checkout develop
+```
+
+Ramas: `main` (estable) y `develop` (integración). Ver
+[`docs/adr/0006-branching-strategy.md`](docs/adr/0006-branching-strategy.md).
+
 ## Instalación local
 
 Pendiente — `docker-compose.yml` y el scaffolding de cada app se agregan en los siguientes
@@ -62,7 +73,8 @@ Pendiente — se documentará junto con el scaffolding de `backend/`, `frontend/
 
 ## Despliegue
 
-Pendiente — ver sección 11 de [`docs/SRS.md`](docs/SRS.md#11-entorno-y-despliegue).
+Pendiente — ver sección 11 de [`docs/SRS.md`](docs/SRS.md#11-entorno-y-despliegue) y
+[`docs/deployment.md`](docs/deployment.md) (incluye nota sobre Vercel para el frontend).
 
 ## Licencia
 
