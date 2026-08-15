@@ -5,10 +5,12 @@
 
 ## Estado del proyecto
 
-Fase 0 (base del repositorio) + scaffolding inicial de backend/workers. Existe un FastAPI
-mínimo con health checks reales (`/health/live`, `/health/ready`) y un worker ARQ vacío,
-pero **todavía no hay funcionalidad de negocio** (auth, datasets, agente, etc. — eso es
-Fase 1 en adelante). El frontend todavía no tiene scaffolding.
+Fase 0 (base del repositorio) + Fase 1 (auth + tenants) completas. Existe autenticación real
+por credenciales + JWT (registro, login, roles OWNER/ADMIN/ANALYST/VIEWER, aislamiento por
+`organization_id`, audit log) — ver `POST /api/v1/auth/register`, `POST /api/v1/auth/login`,
+`GET /api/v1/auth/me`, `POST /api/v1/organizations`, `GET /api/v1/audit-events`. Datasets,
+agente, SQL seguro y visualización son Fase 2 en adelante. El frontend todavía no tiene
+scaffolding (backend-first, ver `docs/adr/`).
 Ver el roadmap completo en [`docs/SRS.md`](docs/SRS.md#13-roadmap-de-implementación).
 
 ## Problema
@@ -93,6 +95,14 @@ uv run --package backend pytest                      # tests de backend
 uv run --package backend ruff check backend/app       # lint
 uv run --package backend alembic revision --autogenerate -m "mensaje"
 uv run --package backend alembic upgrade head
+```
+
+Los tests de integración de `backend/` corren contra una base de datos de test real
+(`ai_data_analyst_test`, no mocks), no la de desarrollo. Si no existe todavía:
+
+```bash
+docker compose exec postgres psql -U postgres -c "CREATE DATABASE ai_data_analyst_test;"
+docker compose exec postgres psql -U postgres -d ai_data_analyst_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
 ```
 
 `frontend/` todavía no tiene scaffolding — pendiente.
