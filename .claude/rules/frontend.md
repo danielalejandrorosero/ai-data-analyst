@@ -19,3 +19,7 @@ Convenciones de código para `frontend/` (React + TypeScript + Vite), gestionado
   vía `src/lib/` o `src/components/` si es UI genérica.
 - Tipos generados o alineados con los schemas Pydantic del backend (manual o vía OpenAPI)
   para mantener el contrato consistente entre frontend y backend.
+- CSS mobile-first con los breakpoints por defecto de Tailwind (estilos base sin prefijo
+  para la pantalla más chica, `sm:`/`md:`/`lg:` hacia arriba) — es metodología de
+  construcción, no cambia el alcance formal de RNF-030 (el objetivo verificado sigue
+  siendo tablet y desktop; no se testea ni se garantiza en tamaño de celular).
