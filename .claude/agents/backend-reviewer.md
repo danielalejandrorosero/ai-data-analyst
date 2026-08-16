@@ -16,8 +16,10 @@ Al revisar un cambio, verifica específicamente:
 3. **Separación ORM / SQL de agente**: el SQL generado por el agente nunca reutiliza
    sesiones ni credenciales del ORM de la plataforma; siempre pasa por el SQL validator y
    corre con credenciales read-only.
-4. **Versionado de API**: rutas nuevas bajo `/api/v1`; cambios incompatibles no rompen el
-   contrato existente (RNF-023).
+4. **Contrato de API**: rutas nuevas bajo `/api`, sin versión en la URL mientras no haya un
+   consumidor externo real (RNF-023) — un cambio incompatible sobre una ruta existente debe
+   quedar documentado como decisión consciente (`docs/architecture.md`), no colarse
+   silencioso.
 5. **Migraciones**: cambios de modelo van vía Alembic, no ediciones manuales de esquema.
 6. **Tests**: componentes críticos (auth, SQL validator, agent tools, API crítica) tienen
    test asociado, incluyendo al menos un caso negativo.

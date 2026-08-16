@@ -113,7 +113,7 @@ evaluaron y se decidió no resolverlas todavía):
   desproporcionado para el nivel de amenaza de este MVP; revisitar si el proyecto se expone
   públicamente antes de Fase 8.
 - **MySQL (RF-010) diferido**: el SRS pide registrar conexiones PostgreSQL y MySQL; se
-  implementó solo PostgreSQL (`POST /api/v1/datasets/connections`, Fase 3b) — MySQL
+  implementó solo PostgreSQL (`POST /api/datasets/connections`, Fase 3b) — MySQL
   requiere una dependencia async nueva y su propio servicio de DB para testearlo con una
   instancia real, no mocks (`.claude/rules/testing.md`). El schema de request rechaza
   `type: "mysql"` explícitamente (422) en vez de aceptarlo y fallar más adelante.

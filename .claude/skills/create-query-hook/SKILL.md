@@ -1,11 +1,11 @@
 ---
 name: create-query-hook
-description: Scaffolds a typed TanStack Query hook (useQuery/useMutation) for a given backend /api/v1 endpoint, including error handling and cache invalidation. Use whenever the frontend needs to consume a new or existing API endpoint.
+description: Scaffolds a typed TanStack Query hook (useQuery/useMutation) for a given backend /api endpoint, including error handling and cache invalidation. Use whenever the frontend needs to consume a new or existing API endpoint.
 ---
 
 # create-query-hook
 
-Crea un hook de TanStack Query en `src/api/` para consumir un endpoint de `/api/v1`.
+Crea un hook de TanStack Query en `src/api/` para consumir un endpoint de `/api`.
 
 ## Cuándo usarla
 Antes de que cualquier componente o página consuma un endpoint nuevo del backend.

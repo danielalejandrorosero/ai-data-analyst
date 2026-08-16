@@ -24,7 +24,7 @@ def _bypass_ssrf_guard(monkeypatch):
 
 async def _register_and_get_org(client, unique_email: str):
     register_response = await client.post(
-        "/api/v1/auth/register",
+        "/api/auth/register",
         json={
             "email": unique_email,
             "password": "correcthorsebattery",
@@ -42,7 +42,7 @@ class TestRegisterConnection:
         token, org_id = await _register_and_get_org(client, unique_email)
 
         response = await client.post(
-            "/api/v1/datasets/connections",
+            "/api/datasets/connections",
             params={"organization_id": org_id},
             json={
                 "type": "postgres",
@@ -76,7 +76,7 @@ class TestRegisterConnection:
         token, org_id = await _register_and_get_org(client, unique_email)
 
         response = await client.post(
-            "/api/v1/datasets/connections",
+            "/api/datasets/connections",
             params={"organization_id": org_id},
             json={
                 "type": "postgres",
@@ -105,7 +105,7 @@ class TestRegisterConnection:
         token, org_id = await _register_and_get_org(client, unique_email)
 
         response = await client.post(
-            "/api/v1/datasets/connections",
+            "/api/datasets/connections",
             params={"organization_id": org_id},
             json={
                 "type": "postgres",
@@ -126,7 +126,7 @@ class TestRegisterConnection:
         token, org_id = await _register_and_get_org(client, unique_email)
 
         viewer_response = await client.post(
-            "/api/v1/auth/register",
+            "/api/auth/register",
             json={
                 "email": f"viewer-{unique_email}",
                 "password": "correcthorsebattery",
@@ -139,7 +139,7 @@ class TestRegisterConnection:
         await db_session.commit()
 
         response = await client.post(
-            "/api/v1/datasets/connections",
+            "/api/datasets/connections",
             params={"organization_id": org_id},
             json={
                 "type": "postgres",
@@ -160,7 +160,7 @@ class TestRegisterConnection:
         token, org_id = await _register_and_get_org(client, unique_email)
 
         analyst_response = await client.post(
-            "/api/v1/auth/register",
+            "/api/auth/register",
             json={
                 "email": f"analyst-{unique_email}",
                 "password": "correcthorsebattery",
@@ -175,7 +175,7 @@ class TestRegisterConnection:
         await db_session.commit()
 
         response = await client.post(
-            "/api/v1/datasets/connections",
+            "/api/datasets/connections",
             params={"organization_id": org_id},
             json={
                 "type": "postgres",
@@ -194,7 +194,7 @@ class TestRegisterConnection:
         _token, org_id = await _register_and_get_org(client, unique_email)
 
         outsider_response = await client.post(
-            "/api/v1/auth/register",
+            "/api/auth/register",
             json={
                 "email": f"outsider-{unique_email}",
                 "password": "correcthorsebattery",
@@ -204,7 +204,7 @@ class TestRegisterConnection:
         outsider_token = outsider_response.json()["access_token"]
 
         response = await client.post(
-            "/api/v1/datasets/connections",
+            "/api/datasets/connections",
             params={"organization_id": org_id},
             json={
                 "type": "postgres",
@@ -229,7 +229,7 @@ class TestRegisterConnection:
         token, org_id = await _register_and_get_org(client, unique_email)
 
         response = await client.post(
-            "/api/v1/datasets/connections",
+            "/api/datasets/connections",
             params={"organization_id": org_id},
             json={
                 "type": "mysql",
@@ -264,7 +264,7 @@ class TestSsrfProtection:
         token, org_id = await _register_and_get_org(client, unique_email)
 
         response = await client.post(
-            "/api/v1/datasets/connections",
+            "/api/datasets/connections",
             params={"organization_id": org_id},
             json={
                 "type": "postgres",
@@ -285,7 +285,7 @@ class TestSsrfProtection:
         token, org_id = await _register_and_get_org(client, unique_email)
 
         await client.post(
-            "/api/v1/datasets/connections",
+            "/api/datasets/connections",
             params={"organization_id": org_id},
             json={
                 "type": "postgres",

@@ -16,7 +16,7 @@ def _stub_arq(monkeypatch):
     (workers/tasks/analysis.py) sin logica propia que testear aca. Mockear
     evita que el endpoint necesite un worker real corriendo ni un
     LLM_API_KEY en el entorno de test."""
-    import app.api.v1.analyses as analyses_module
+    import app.api.analyses as analyses_module
     import app.domain.agent.cancellation as cancellation_module
 
     class _FakeJob:
@@ -39,7 +39,7 @@ def _stub_arq(monkeypatch):
 
 async def _register_and_import(client, unique_email: str):
     register_response = await client.post(
-        "/api/v1/auth/register",
+        "/api/auth/register",
         json={
             "email": unique_email,
             "password": "correcthorsebattery",
@@ -51,7 +51,7 @@ async def _register_and_import(client, unique_email: str):
     org_id = body["user"]["memberships"][0]["organization_id"]
 
     import_response = await client.post(
-        "/api/v1/datasets/import",
+        "/api/datasets/import",
         data={"organization_id": org_id},
         files={"file": ("d.csv", io.BytesIO(b"a,b\n1,2\n"), "text/csv")},
         headers={"Authorization": f"Bearer {token}"},
@@ -75,7 +75,7 @@ class TestCreateAnalysis:
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
 
         response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "Cuantas filas hay?"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -88,7 +88,7 @@ class TestCreateAnalysis:
         _token, _org_id, dataset_id = await _register_and_import(client, unique_email)
 
         response = await client.post(
-            "/api/v1/analyses", json={"dataset_id": dataset_id, "question": "x"}
+            "/api/analyses", json={"dataset_id": dataset_id, "question": "x"}
         )
         assert response.status_code == 401
 
@@ -96,7 +96,7 @@ class TestCreateAnalysis:
         token, _org_id, _dataset_id = await _register_and_import(client, unique_email)
 
         response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": str(uuid.uuid4()), "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -108,7 +108,7 @@ class TestCreateAnalysis:
         _token, _org_id, dataset_id = await _register_and_import(client, unique_email)
 
         outsider_response = await client.post(
-            "/api/v1/auth/register",
+            "/api/auth/register",
             json={
                 "email": f"outsider-{unique_email}",
                 "password": "correcthorsebattery",
@@ -118,7 +118,7 @@ class TestCreateAnalysis:
         outsider_token = outsider_response.json()["access_token"]
 
         response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {outsider_token}"},
         )
@@ -128,7 +128,7 @@ class TestCreateAnalysis:
         token, org_id, dataset_id = await _register_and_import(client, unique_email)
 
         viewer_response = await client.post(
-            "/api/v1/auth/register",
+            "/api/auth/register",
             json={
                 "email": f"viewer-{unique_email}",
                 "password": "correcthorsebattery",
@@ -142,7 +142,7 @@ class TestCreateAnalysis:
         await db_session.commit()
 
         response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {viewer_token}"},
         )
@@ -154,14 +154,14 @@ class TestGetAnalysis:
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
 
         create_response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
         analysis_id = create_response.json()["id"]
 
         response = await client.get(
-            f"/api/v1/analyses/{analysis_id}", headers={"Authorization": f"Bearer {token}"}
+            f"/api/analyses/{analysis_id}", headers={"Authorization": f"Bearer {token}"}
         )
         assert response.status_code == 200
         assert response.json()["id"] == analysis_id
@@ -169,26 +169,26 @@ class TestGetAnalysis:
     async def test_get_analysis_without_token_is_rejected(self, client, unique_email):
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
         create_response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
         analysis_id = create_response.json()["id"]
 
-        response = await client.get(f"/api/v1/analyses/{analysis_id}")
+        response = await client.get(f"/api/analyses/{analysis_id}")
         assert response.status_code == 401
 
     async def test_get_analysis_of_another_organization_returns_404(self, client, unique_email):
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
         create_response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
         analysis_id = create_response.json()["id"]
 
         other_response = await client.post(
-            "/api/v1/auth/register",
+            "/api/auth/register",
             json={
                 "email": f"other-{unique_email}",
                 "password": "correcthorsebattery",
@@ -198,7 +198,7 @@ class TestGetAnalysis:
         other_token = other_response.json()["access_token"]
 
         response = await client.get(
-            f"/api/v1/analyses/{analysis_id}", headers={"Authorization": f"Bearer {other_token}"}
+            f"/api/analyses/{analysis_id}", headers={"Authorization": f"Bearer {other_token}"}
         )
         assert response.status_code == 404
 
@@ -206,7 +206,7 @@ class TestGetAnalysis:
         token, _org_id, _dataset_id = await _register_and_import(client, unique_email)
 
         response = await client.get(
-            f"/api/v1/analyses/{uuid.uuid4()}", headers={"Authorization": f"Bearer {token}"}
+            f"/api/analyses/{uuid.uuid4()}", headers={"Authorization": f"Bearer {token}"}
         )
         assert response.status_code == 404
 
@@ -218,18 +218,18 @@ class TestListAnalyses:
         token, org_id, dataset_id = await _register_and_import(client, unique_email)
 
         first = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "primera"},
             headers={"Authorization": f"Bearer {token}"},
         )
         second = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "segunda"},
             headers={"Authorization": f"Bearer {token}"},
         )
 
         response = await client.get(
-            "/api/v1/analyses",
+            "/api/analyses",
             params={"organization_id": org_id},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -245,13 +245,13 @@ class TestListAnalyses:
     async def test_viewer_can_list_analyses(self, client, unique_email, db_session):
         token, org_id, dataset_id = await _register_and_import(client, unique_email)
         await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
 
         viewer_response = await client.post(
-            "/api/v1/auth/register",
+            "/api/auth/register",
             json={
                 "email": f"viewer-list-{unique_email}",
                 "password": "correcthorsebattery",
@@ -266,7 +266,7 @@ class TestListAnalyses:
         await db_session.commit()
 
         response = await client.get(
-            "/api/v1/analyses",
+            "/api/analyses",
             params={"organization_id": org_id},
             headers={"Authorization": f"Bearer {viewer_token}"},
         )
@@ -278,13 +278,13 @@ class TestListAnalyses:
     ):
         token, org_id, dataset_id = await _register_and_import(client, unique_email)
         await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
 
         outsider_response = await client.post(
-            "/api/v1/auth/register",
+            "/api/auth/register",
             json={
                 "email": f"outsider-list-{unique_email}",
                 "password": "correcthorsebattery",
@@ -294,7 +294,7 @@ class TestListAnalyses:
         outsider_token = outsider_response.json()["access_token"]
 
         response = await client.get(
-            "/api/v1/analyses",
+            "/api/analyses",
             params={"organization_id": org_id},
             headers={"Authorization": f"Bearer {outsider_token}"},
         )
@@ -303,7 +303,7 @@ class TestListAnalyses:
     async def test_list_analyses_without_token_is_rejected(self, client, unique_email):
         _token, org_id, _dataset_id = await _register_and_import(client, unique_email)
 
-        response = await client.get("/api/v1/analyses", params={"organization_id": org_id})
+        response = await client.get("/api/analyses", params={"organization_id": org_id})
         assert response.status_code == 401
 
 
@@ -311,14 +311,14 @@ class TestCancelAnalysis:
     async def test_analyst_can_cancel_a_running_analysis(self, client, unique_email):
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
         create_response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
         analysis_id = create_response.json()["id"]
 
         response = await client.post(
-            f"/api/v1/analyses/{analysis_id}/cancel",
+            f"/api/analyses/{analysis_id}/cancel",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -334,19 +334,19 @@ class TestCancelAnalysis:
         devuelve True, simulando ese caso."""
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
         create_response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
         analysis_id = create_response.json()["id"]
 
         await client.post(
-            f"/api/v1/analyses/{analysis_id}/cancel",
+            f"/api/analyses/{analysis_id}/cancel",
             headers={"Authorization": f"Bearer {token}"},
         )
 
         get_response = await client.get(
-            f"/api/v1/analyses/{analysis_id}", headers={"Authorization": f"Bearer {token}"}
+            f"/api/analyses/{analysis_id}", headers={"Authorization": f"Bearer {token}"}
         )
         assert get_response.json()["status"] == "CANCELLED"
 
@@ -367,14 +367,14 @@ class TestCancelAnalysis:
 
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
         create_response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
         analysis_id = create_response.json()["id"]
 
         response = await client.post(
-            f"/api/v1/analyses/{analysis_id}/cancel",
+            f"/api/analyses/{analysis_id}/cancel",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -385,7 +385,7 @@ class TestCancelAnalysis:
     ):
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
         create_response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -393,7 +393,7 @@ class TestCancelAnalysis:
         await _set_status_directly(db_session, analysis_id, AnalysisStatus.COMPLETED)
 
         response = await client.post(
-            f"/api/v1/analyses/{analysis_id}/cancel",
+            f"/api/analyses/{analysis_id}/cancel",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 409
@@ -401,14 +401,14 @@ class TestCancelAnalysis:
     async def test_viewer_cannot_cancel(self, client, unique_email, db_session):
         token, org_id, dataset_id = await _register_and_import(client, unique_email)
         create_response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
         analysis_id = create_response.json()["id"]
 
         viewer_response = await client.post(
-            "/api/v1/auth/register",
+            "/api/auth/register",
             json={
                 "email": f"viewer-cancel-{unique_email}",
                 "password": "correcthorsebattery",
@@ -421,7 +421,7 @@ class TestCancelAnalysis:
         await db_session.commit()
 
         response = await client.post(
-            f"/api/v1/analyses/{analysis_id}/cancel",
+            f"/api/analyses/{analysis_id}/cancel",
             headers={"Authorization": f"Bearer {viewer_token}"},
         )
         assert response.status_code == 403
@@ -430,7 +430,7 @@ class TestCancelAnalysis:
         token, _org_id, _dataset_id = await _register_and_import(client, unique_email)
 
         response = await client.post(
-            f"/api/v1/analyses/{uuid.uuid4()}/cancel",
+            f"/api/analyses/{uuid.uuid4()}/cancel",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 404
@@ -438,14 +438,14 @@ class TestCancelAnalysis:
     async def test_cancelling_without_membership_returns_404(self, client, unique_email):
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
         create_response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
         analysis_id = create_response.json()["id"]
 
         outsider_response = await client.post(
-            "/api/v1/auth/register",
+            "/api/auth/register",
             json={
                 "email": f"outsider-cancel-{unique_email}",
                 "password": "correcthorsebattery",
@@ -455,7 +455,7 @@ class TestCancelAnalysis:
         outsider_token = outsider_response.json()["access_token"]
 
         response = await client.post(
-            f"/api/v1/analyses/{analysis_id}/cancel",
+            f"/api/analyses/{analysis_id}/cancel",
             headers={"Authorization": f"Bearer {outsider_token}"},
         )
         assert response.status_code == 404
@@ -467,7 +467,7 @@ class TestStreamAnalysisEvents:
     ):
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
         create_response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -475,7 +475,7 @@ class TestStreamAnalysisEvents:
         await _set_status_directly(db_session, analysis_id, AnalysisStatus.COMPLETED)
 
         response = await client.get(
-            f"/api/v1/analyses/{analysis_id}/events",
+            f"/api/analyses/{analysis_id}/events",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -484,14 +484,14 @@ class TestStreamAnalysisEvents:
     async def test_stream_events_without_membership_returns_404(self, client, unique_email):
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
         create_response = await client.post(
-            "/api/v1/analyses",
+            "/api/analyses",
             json={"dataset_id": dataset_id, "question": "x"},
             headers={"Authorization": f"Bearer {token}"},
         )
         analysis_id = create_response.json()["id"]
 
         outsider_response = await client.post(
-            "/api/v1/auth/register",
+            "/api/auth/register",
             json={
                 "email": f"outsider-events-{unique_email}",
                 "password": "correcthorsebattery",
@@ -501,7 +501,7 @@ class TestStreamAnalysisEvents:
         outsider_token = outsider_response.json()["access_token"]
 
         response = await client.get(
-            f"/api/v1/analyses/{analysis_id}/events",
+            f"/api/analyses/{analysis_id}/events",
             headers={"Authorization": f"Bearer {outsider_token}"},
         )
         assert response.status_code == 404

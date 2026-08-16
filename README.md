@@ -10,23 +10,23 @@ Fase 0 (base del repositorio) + Fase 1 (auth + tenants) + Fase 2 (datasets) + Fa
 cancelación, progreso en vivo) completas.
 
 - Auth real por credenciales + JWT (registro, login, roles OWNER/ADMIN/ANALYST/VIEWER,
-  aislamiento por `organization_id`, audit log de éxitos y fallos): `POST /api/v1/auth/register`,
-  `POST /api/v1/auth/login`, `GET /api/v1/auth/me`, `POST /api/v1/organizations`,
-  `GET /api/v1/audit-events`.
-- Import de datasets CSV/Excel real (no un mock): `POST /api/v1/datasets/import` parsea el
+  aislamiento por `organization_id`, audit log de éxitos y fallos): `POST /api/auth/register`,
+  `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/organizations`,
+  `GET /api/audit-events`.
+- Import de datasets CSV/Excel real (no un mock): `POST /api/datasets/import` parsea el
   archivo, valida tamaño/filas, y carga los datos en una tabla física de PostgreSQL (schema
-  `datasets`) — no queda como archivo suelto. `GET /api/v1/datasets`,
-  `GET /api/v1/datasets/{id}/schema` para el catálogo.
-- Agente + SQL seguro real, ahora asíncrono (RF-020 a RF-025): `POST /api/v1/analyses`
+  `datasets`) — no queda como archivo suelto. `GET /api/datasets`,
+  `GET /api/datasets/{id}/schema` para el catálogo.
+- Agente + SQL seguro real, ahora asíncrono (RF-020 a RF-025): `POST /api/analyses`
   encola el análisis como job de `workers/` (ARQ) y responde `202` de inmediato en
   `QUEUED` — el agente (PydanticAI + Kimi) inspecciona el esquema y puede ejecutar más de
   una consulta de solo lectura por pregunta compleja (hasta un límite configurable),
   validada por un parser real (`sqlglot`) y por un rol Postgres separado sin permisos de
-  escritura ni acceso a las tablas de la plataforma. `GET /api/v1/analyses/{id}` para
-  consultar el resultado y el trace de tool calls, `GET /api/v1/analyses` para el historial,
-  `GET /api/v1/analyses/{id}/events` para progreso en vivo por SSE, y
-  `POST /api/v1/analyses/{id}/cancel` para abortar una ejecución en curso.
-- Conexiones externas PostgreSQL (RF-010): `POST /api/v1/datasets/connections` (rol
+  escritura ni acceso a las tablas de la plataforma. `GET /api/analyses/{id}` para
+  consultar el resultado y el trace de tool calls, `GET /api/analyses` para el historial,
+  `GET /api/analyses/{id}/events` para progreso en vivo por SSE, y
+  `POST /api/analyses/{id}/cancel` para abortar una ejecución en curso.
+- Conexiones externas PostgreSQL (RF-010): `POST /api/datasets/connections` (rol
   OWNER/ADMIN) prueba la conexión con un `SELECT 1` controlado antes de guardar nada, y
   cifra la credencial (Fernet). MySQL queda diferido explícitamente (ver
   `docs/architecture.md` sección 8.1) — el agente todavía no ejecuta consultas contra estas
@@ -35,7 +35,7 @@ cancelación, progreso en vivo) completas.
 Visualización y RAG documental son Fase 5 en adelante. El frontend todavía no tiene
 scaffolding (backend-first, ver `docs/adr/`).
 
-**Importante**: desde Fase 4, `POST /api/v1/analyses` responde `202` con `QUEUED` de
+**Importante**: desde Fase 4, `POST /api/analyses` responde `202` con `QUEUED` de
 inmediato — el `worker` (ARQ) tiene que estar corriendo para que el análisis avance en
 absoluto, si no se queda en `QUEUED` para siempre. `docker compose up -d` ya lo incluye,
 pero si corrés el backend nativo sin Docker acordate de levantarlo aparte (ver más abajo).
@@ -57,7 +57,7 @@ Este repositorio separa deliberadamente tres capas de documentación:
 | [`docs/architecture.md`](docs/architecture.md) | **Cómo** se construye (estructura, flujo, componentes) |
 | [`docs/adr/`](docs/adr/) | **Por qué** se tomó cada decisión técnica relevante |
 | [`docs/security/threat-model.md`](docs/security/threat-model.md) | Amenazas y controles de seguridad |
-| [`docs/api/`](docs/api/) | Referencia de la API `/api/v1` |
+| [`docs/api/`](docs/api/) | Referencia de la API `/api` |
 
 ## Stack
 
@@ -111,9 +111,9 @@ Para conectarlo a la DB del proyecto: nuevo servidor, host `postgres` (nombre de
 en la red de Docker, no `localhost`), puerto `5432`, usuario/password de `POSTGRES_USER`/
 `POSTGRES_PASSWORD`.
 
-Todo funciona sin `LLM_API_KEY` **excepto** procesar el análisis en sí: `POST /api/v1/analyses`
+Todo funciona sin `LLM_API_KEY` **excepto** procesar el análisis en sí: `POST /api/analyses`
 igual responde `202`/`QUEUED` (eso no depende del LLM), pero el `worker` lo deja en
-`FAILED` con un mensaje claro apenas lo levanta (ver `GET /api/v1/analyses/{id}` o los logs
+`FAILED` con un mensaje claro apenas lo levanta (ver `GET /api/analyses/{id}` o los logs
 de `worker` — no rompe el resto de la app). Para que el agente funcione de verdad, completá
 en `.env`: `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_BASE_URL` y `LLM_MODEL` con los datos de tu
 cuenta de Kimi (Moonshot AI) — ver [`docs/adr/0009-llm-provider.md`](docs/adr/0009-llm-provider.md).

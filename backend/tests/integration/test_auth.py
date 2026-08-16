@@ -2,7 +2,7 @@ async def _register(
     client, email: str, password: str = "correcthorsebattery", org: str = "Test Org"
 ):
     return await client.post(
-        "/api/v1/auth/register",
+        "/api/auth/register",
         json={"email": email, "password": password, "organization_name": org},
     )
 
@@ -27,7 +27,7 @@ class TestRegister:
 
     async def test_register_rejects_short_password(self, client, unique_email):
         response = await client.post(
-            "/api/v1/auth/register",
+            "/api/auth/register",
             json={"email": unique_email, "password": "short", "organization_name": "Org"},
         )
         assert response.status_code == 422
@@ -38,7 +38,7 @@ class TestLogin:
         await _register(client, unique_email, password="correcthorsebattery")
 
         response = await client.post(
-            "/api/v1/auth/login",
+            "/api/auth/login",
             json={"email": unique_email, "password": "correcthorsebattery"},
         )
         assert response.status_code == 200
@@ -48,7 +48,7 @@ class TestLogin:
         await _register(client, unique_email, password="correcthorsebattery")
 
         response = await client.post(
-            "/api/v1/auth/login",
+            "/api/auth/login",
             json={"email": unique_email, "password": "wrongpassword"},
         )
         assert response.status_code == 401
@@ -60,12 +60,12 @@ class TestLogin:
         org_id = body["user"]["memberships"][0]["organization_id"]
 
         await client.post(
-            "/api/v1/auth/login",
+            "/api/auth/login",
             json={"email": unique_email, "password": "wrongpassword"},
         )
 
         response = await client.get(
-            f"/api/v1/audit-events?organization_id={org_id}",
+            f"/api/audit-events?organization_id={org_id}",
             headers={"Authorization": f"Bearer {token}"},
         )
         actions = {event["action"] for event in response.json()}
@@ -73,7 +73,7 @@ class TestLogin:
 
     async def test_login_with_unknown_email_is_rejected(self, client):
         response = await client.post(
-            "/api/v1/auth/login",
+            "/api/auth/login",
             json={"email": "no-existe@example.com", "password": "whatever123"},
         )
         assert response.status_code == 401
@@ -81,12 +81,12 @@ class TestLogin:
 
 class TestMe:
     async def test_me_without_token_is_rejected(self, client):
-        response = await client.get("/api/v1/auth/me")
+        response = await client.get("/api/auth/me")
         assert response.status_code == 401
 
     async def test_me_with_invalid_token_is_rejected(self, client):
         response = await client.get(
-            "/api/v1/auth/me", headers={"Authorization": "Bearer not-a-real-token"}
+            "/api/auth/me", headers={"Authorization": "Bearer not-a-real-token"}
         )
         assert response.status_code == 401
 
@@ -94,7 +94,7 @@ class TestMe:
         register_response = await _register(client, unique_email)
         token = register_response.json()["access_token"]
 
-        response = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+        response = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 200
         assert response.json()["email"] == unique_email
 
@@ -107,7 +107,7 @@ class TestOrganizations:
         token = register_response.json()["access_token"]
 
         response = await client.post(
-            "/api/v1/organizations",
+            "/api/organizations",
             json={"name": "Segunda Org"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -115,7 +115,7 @@ class TestOrganizations:
         assert response.json()["role"] == "OWNER"
 
     async def test_create_organization_without_token_is_rejected(self, client):
-        response = await client.post("/api/v1/organizations", json={"name": "X"})
+        response = await client.post("/api/organizations", json={"name": "X"})
         assert response.status_code == 401
 
 
@@ -127,7 +127,7 @@ class TestAuditEventsRbacAndTenantIsolation:
         org_id = body["user"]["memberships"][0]["organization_id"]
 
         response = await client.get(
-            f"/api/v1/audit-events?organization_id={org_id}",
+            f"/api/audit-events?organization_id={org_id}",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
@@ -143,7 +143,7 @@ class TestAuditEventsRbacAndTenantIsolation:
         other_token = other_response.json()["access_token"]
 
         response = await client.get(
-            f"/api/v1/audit-events?organization_id={org_id}",
+            f"/api/audit-events?organization_id={org_id}",
             headers={"Authorization": f"Bearer {other_token}"},
         )
         assert response.status_code == 403
@@ -152,5 +152,5 @@ class TestAuditEventsRbacAndTenantIsolation:
         register_response = await _register(client, unique_email)
         org_id = register_response.json()["user"]["memberships"][0]["organization_id"]
 
-        response = await client.get(f"/api/v1/audit-events?organization_id={org_id}")
+        response = await client.get(f"/api/audit-events?organization_id={org_id}")
         assert response.status_code == 401

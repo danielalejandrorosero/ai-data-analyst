@@ -9,7 +9,7 @@
 Monolito modular en Python, siguiendo la arquitectura de referencia del SRS (sección 5):
 
 - **`frontend/`** — React + TypeScript + Vite. Consume la API vía HTTPS y el stream de eventos vía SSE.
-- **`backend/`** — FastAPI + Pydantic v2. Expone `/api/v1`, gestiona auth/RBAC/tenant scoping,
+- **`backend/`** — FastAPI + Pydantic v2. Expone `/api`, gestiona auth/RBAC/tenant scoping,
   valida y ejecuta SQL read-only, coordina el agente y sirve SSE.
 - **`workers/`** — ARQ sobre Redis. Ejecuta jobs asíncronos: import de datasets y el ciclo de vida
   completo del agente (`QUEUED -> ... -> COMPLETED/FAILED/CANCELLED/TIMED_OUT`).
@@ -74,12 +74,12 @@ pasada de estructura/documentación.
 
 ## 4. Flujo de una ejecución de análisis
 
-1. Cliente hace `POST /api/v1/analyses` con `dataset_id` y `question`.
+1. Cliente hace `POST /api/analyses` con `dataset_id` y `question`.
 2. `backend/` valida RBAC + tenant, crea el registro `analyses` (estado `QUEUED`) y encola un job ARQ.
 3. `workers/` toma el job, instancia el agente y transiciona el estado (`PLANNING -> TOOL_RUNNING -> ANALYZING -> GENERATING_RESPONSE`).
 4. Cada tool call (`inspect_schema`, `execute_readonly_sql`, `run_analysis`, `create_chart`,
    `search_documents`) se registra en `tool_calls` y publica un evento de progreso en Redis.
-5. `backend/` expone `GET /api/v1/analyses/{id}/events` como stream SSE que retransmite esos eventos al cliente.
+5. `backend/` expone `GET /api/analyses/{id}/events` como stream SSE que retransmite esos eventos al cliente.
 6. Al finalizar, el resultado queda en `analysis_artifacts`; el estado final es `COMPLETED`,
    `FAILED`, `CANCELLED` o `TIMED_OUT`.
 
@@ -132,7 +132,7 @@ mejora de hardening, no como dependencia del MVP.
   `execute_readonly_sql`, cada tool call queda en `tool_calls` con duración, hash del input
   y resumen del resultado (RF-023, RF-033). Proveedor de LLM: Kimi (Moonshot AI) vía API
   compatible con OpenAI — ver `docs/adr/0009-llm-provider.md`.
-- `POST /api/v1/analyses` (Fase 4) encola el análisis como job real de `workers/` (ARQ) y
+- `POST /api/analyses` (Fase 4) encola el análisis como job real de `workers/` (ARQ) y
   responde `202` de inmediato en `QUEUED` — ya no corre sincrónico dentro del request como
   en Fase 3a. Nota: `POST /datasets/import` (sección 12) sigue siendo sincrónico — esa
   decisión no cambió, solo la de `analyses`. El cliente sigue el progreso vía
@@ -165,7 +165,7 @@ mejora de hardening, no como dependencia del MVP.
   `.claude/rules/database.md` ("nunca como columna gigante dentro de una fila"). El acceso
   al resultado completo/exportable es RF-042 (`analysis_artifacts`, Fase 5) — todavía no
   implementado; esto es evidencia suficiente para sustentar la respuesta, no un export.
-- `POST /api/v1/analyses/{id}/cancel` (RF-025) usa `arq.jobs.Job.abort()`. Dos detalles
+- `POST /api/analyses/{id}/cancel` (RF-025) usa `arq.jobs.Job.abort()`. Dos detalles
   encontrados solo probando contra Docker real, no obvios por la documentación de arq:
   - El `WorkerSettings` necesita `allow_abort_jobs = True` — sin eso, `Job.abort()` no
     interrumpe un job que ya está corriendo, solo lo saca de la cola si todavía no arrancó.
@@ -185,7 +185,7 @@ mejora de hardening, no como dependencia del MVP.
 
 ## 8.1 Conexiones externas (RF-010, Fase 3b)
 
-- `POST /api/v1/datasets/connections` (rol OWNER/ADMIN) registra una conexión PostgreSQL
+- `POST /api/datasets/connections` (rol OWNER/ADMIN) registra una conexión PostgreSQL
   externa: primero se prueba con un `SELECT 1` controlado (`domain/datasets/connections.py`,
   timeout corto y fijo) — si falla, no se persiste nada, ni siquiera cifrado. Solo si la
   prueba pasa se guarda la fila en `data_sources` (tipo `postgres`), con `host`/`port`/
@@ -258,7 +258,7 @@ Consecuencias a tener presentes:
 **Divergencia conocida con el diagrama de la sección 1**: el diagrama y la sección 4 describen
 el import de datasets como un job de `workers/` (ARQ). La implementación actual de Fase 2
 ejecuta el import **de forma síncrona dentro del propio request HTTP** (`POST
-/api/v1/datasets/import` lee, parsea e inserta todo antes de responder) — es una simplificación
+/api/datasets/import` lee, parsea e inserta todo antes de responder) — es una simplificación
 consciente para el MVP de Fase 2, no un error. Si `import_max_rows` (200k por defecto) empieza
 a generar timeouts de request reales, mover el import a un job de `workers/` (con polling o
 notificación de estado) es el rediseño esperado — no antes, para no construir infraestructura

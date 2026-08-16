@@ -7,7 +7,7 @@ async def _register(
     client, email: str, password: str = "correcthorsebattery", org: str = "Test Org"
 ):
     return await client.post(
-        "/api/v1/auth/register",
+        "/api/auth/register",
         json={"email": email, "password": password, "organization_name": org},
     )
 
@@ -24,7 +24,7 @@ class TestImportDataset:
         org_id = body["user"]["memberships"][0]["organization_id"]
 
         response = await client.post(
-            "/api/v1/datasets/import",
+            "/api/datasets/import",
             data={"organization_id": org_id, "name": "Ventas"},
             files=_csv_file(),
             headers={"Authorization": f"Bearer {token}"},
@@ -43,7 +43,7 @@ class TestImportDataset:
         org_id = register_response.json()["user"]["memberships"][0]["organization_id"]
 
         response = await client.post(
-            "/api/v1/datasets/import",
+            "/api/datasets/import",
             data={"organization_id": org_id},
             files=_csv_file(),
         )
@@ -56,7 +56,7 @@ class TestImportDataset:
         org_id = body["user"]["memberships"][0]["organization_id"]
 
         response = await client.post(
-            "/api/v1/datasets/import",
+            "/api/datasets/import",
             data={"organization_id": org_id},
             files={
                 "file": ("dataset.exe", io.BytesIO(b"not a dataset"), "application/octet-stream")
@@ -72,7 +72,7 @@ class TestImportDataset:
         org_id = body["user"]["memberships"][0]["organization_id"]
 
         response = await client.post(
-            "/api/v1/datasets/import",
+            "/api/datasets/import",
             data={"organization_id": org_id},
             files={"file": ("dataset.csv", io.BytesIO(b"\x00\x01\x02binary garbage"), "text/csv")},
             headers={"Authorization": f"Bearer {token}"},
@@ -95,7 +95,7 @@ class TestImportDataset:
         await db_session.commit()
 
         response = await client.post(
-            "/api/v1/datasets/import",
+            "/api/datasets/import",
             data={"organization_id": org_id},
             files=_csv_file(),
             headers={"Authorization": f"Bearer {viewer_token}"},
@@ -114,7 +114,7 @@ class TestImportDataset:
         outsider_token = outsider_response.json()["access_token"]
 
         response = await client.post(
-            "/api/v1/datasets/import",
+            "/api/datasets/import",
             data={"organization_id": org_id},
             files=_csv_file(),
             headers={"Authorization": f"Bearer {outsider_token}"},
@@ -130,7 +130,7 @@ class TestListAndSchema:
         owner_org_id = owner_body["user"]["memberships"][0]["organization_id"]
 
         await client.post(
-            "/api/v1/datasets/import",
+            "/api/datasets/import",
             data={"organization_id": owner_org_id},
             files=_csv_file(),
             headers={"Authorization": f"Bearer {owner_token}"},
@@ -142,7 +142,7 @@ class TestListAndSchema:
         other_org_id = other_body["user"]["memberships"][0]["organization_id"]
 
         response = await client.get(
-            f"/api/v1/datasets?organization_id={other_org_id}",
+            f"/api/datasets?organization_id={other_org_id}",
             headers={"Authorization": f"Bearer {other_token}"},
         )
         assert response.status_code == 200
@@ -152,7 +152,7 @@ class TestListAndSchema:
         register_response = await _register(client, unique_email)
         org_id = register_response.json()["user"]["memberships"][0]["organization_id"]
 
-        response = await client.get(f"/api/v1/datasets?organization_id={org_id}")
+        response = await client.get(f"/api/datasets?organization_id={org_id}")
         assert response.status_code == 401
 
     async def test_list_datasets_without_membership_is_rejected(self, client, unique_email):
@@ -163,7 +163,7 @@ class TestListAndSchema:
         outsider_token = outsider_response.json()["access_token"]
 
         response = await client.get(
-            f"/api/v1/datasets?organization_id={owner_org_id}",
+            f"/api/datasets?organization_id={owner_org_id}",
             headers={"Authorization": f"Bearer {outsider_token}"},
         )
         assert response.status_code == 403
@@ -175,14 +175,14 @@ class TestListAndSchema:
         owner_org_id = owner_body["user"]["memberships"][0]["organization_id"]
 
         import_response = await client.post(
-            "/api/v1/datasets/import",
+            "/api/datasets/import",
             data={"organization_id": owner_org_id},
             files=_csv_file(),
             headers={"Authorization": f"Bearer {owner_token}"},
         )
         dataset_id = import_response.json()["id"]
 
-        response = await client.get(f"/api/v1/datasets/{dataset_id}/schema")
+        response = await client.get(f"/api/datasets/{dataset_id}/schema")
         assert response.status_code == 401
 
     async def test_get_schema_of_dataset_in_another_org_returns_404(self, client, unique_email):
@@ -192,7 +192,7 @@ class TestListAndSchema:
         owner_org_id = owner_body["user"]["memberships"][0]["organization_id"]
 
         import_response = await client.post(
-            "/api/v1/datasets/import",
+            "/api/datasets/import",
             data={"organization_id": owner_org_id},
             files=_csv_file(),
             headers={"Authorization": f"Bearer {owner_token}"},
@@ -203,7 +203,7 @@ class TestListAndSchema:
         other_token = other_response.json()["access_token"]
 
         response = await client.get(
-            f"/api/v1/datasets/{dataset_id}/schema",
+            f"/api/datasets/{dataset_id}/schema",
             headers={"Authorization": f"Bearer {other_token}"},
         )
         assert response.status_code == 404

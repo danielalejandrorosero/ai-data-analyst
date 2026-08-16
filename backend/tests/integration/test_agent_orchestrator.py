@@ -69,7 +69,7 @@ def _malicious_script(table_name: str):
 
 async def _register_and_import(client, unique_email: str):
     register_response = await client.post(
-        "/api/v1/auth/register",
+        "/api/auth/register",
         json={
             "email": unique_email,
             "password": "correcthorsebattery",
@@ -83,7 +83,7 @@ async def _register_and_import(client, unique_email: str):
 
     csv_content = "product,units\nWidget A,120\nWidget B,45\n"
     import_response = await client.post(
-        "/api/v1/datasets/import",
+        "/api/datasets/import",
         data={"organization_id": org_id},
         files={"file": ("dataset.csv", io.BytesIO(csv_content.encode()), "text/csv")},
         headers={"Authorization": f"Bearer {token}"},

@@ -38,7 +38,7 @@ controlada por software (no por el LLM) y trazabilidad end-to-end.
 - CI/CD: GitHub Actions
 
 ## Arquitectura (resumen)
-Monolito modular en Python. FastAPI (`backend/`) expone `/api/v1`, gestiona
+Monolito modular en Python. FastAPI (`backend/`) expone `/api`, gestiona
 auth/RBAC/tenant scoping y encola análisis. Workers ARQ (`workers/`) ejecutan el agente
 (tools: inspect_schema, execute_readonly_sql, run_analysis, create_chart, search_documents)
 y publican progreso vía Redis. FastAPI transmite ese progreso por SSE. React (`frontend/`)
@@ -56,7 +56,10 @@ consume la API y el stream. Detalle completo: `docs/architecture.md`.
 (se completa cuando exista scaffolding real de cada app — pendiente más allá de Fase 0)
 
 ## Convenciones importantes
-- API versionada explícita: `/api/v1/...`
+- API bajo `/api/...`, sin versión en la URL mientras no haya un consumidor externo real
+  (RNF-023) — el contrato evoluciona en el mismo path vía commits, no vía rutas paralelas
+  tipo `/v1`/`/v2`. Un cambio incompatible se documenta como decisión consciente en
+  `docs/architecture.md`.
 - Todo dato de negocio se filtra por `organization_id` en la capa de servicio de dominio
 - El ORM de la plataforma (SQLAlchemy) y el SQL generado por el agente nunca comparten
   ruta de ejecución ni credenciales
