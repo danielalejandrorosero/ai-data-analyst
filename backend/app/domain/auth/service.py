@@ -100,6 +100,24 @@ async def authenticate(db: AsyncSession, *, email: str, password: str) -> tuple[
         raise InvalidCredentialsError()
 
     if not verify_password(password, user.password_hash):
+        # Auditamos el intento fallido (RF-004: "eventos relevantes de
+        # autenticacion y autorizacion", no solo los exitosos) - solo es
+        # posible para usuarios EXISTENTES, porque audit_events siempre
+        # requiere organization_id (es tenant-scoped) y un email
+        # inexistente no tiene ningun tenant al que asociarlo. Ese caso
+        # queda sin auditar, documentado como limite conocido en
+        # docs/security/threat-model.md.
+        memberships_result = await db.execute(
+            select(Membership).where(Membership.user_id == user.id)
+        )
+        for membership in memberships_result.scalars():
+            await audit_service.record_event(
+                db,
+                organization_id=membership.organization_id,
+                actor_id=user.id,
+                action="auth.login_failed",
+            )
+        await db.commit()
         raise InvalidCredentialsError()
 
     # Un evento de auditoria vive por tenant (audit_events.organization_id) -

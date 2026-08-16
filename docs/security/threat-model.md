@@ -75,3 +75,10 @@ evaluaron y se decidió no resolverlas todavía):
   para el canal del agente (Fase 3+) — pero su ausencia hoy también deja `/auth/login` sin
   protección contra fuerza bruta más allá del costo intrínseco de Argon2id. Evaluar agregar
   rate limiting básico de auth antes de Fase 8 si el proyecto se expone públicamente antes.
+- **Intentos de login con email inexistente no se auditan**: `auth.login_failed` (RF-004)
+  se registra cuando el usuario existe pero la password es incorrecta (scoped a sus
+  organizaciones), pero un intento contra un email que no existe no tiene ningún tenant al
+  que asociar el evento — `audit_events.organization_id` es obligatorio por diseño. Cerrar
+  esto del todo requeriría un canal de auditoría no tenant-scoped (log de seguridad a nivel
+  de plataforma, separado del audit log por organización), que no existe todavía — se
+  revisita si se agrega observabilidad centralizada en Fase 7.

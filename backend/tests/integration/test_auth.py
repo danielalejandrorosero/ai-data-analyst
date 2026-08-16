@@ -53,6 +53,24 @@ class TestLogin:
         )
         assert response.status_code == 401
 
+    async def test_login_with_wrong_password_audits_the_failed_attempt(self, client, unique_email):
+        register_response = await _register(client, unique_email, password="correcthorsebattery")
+        body = register_response.json()
+        token = body["access_token"]
+        org_id = body["user"]["memberships"][0]["organization_id"]
+
+        await client.post(
+            "/api/v1/auth/login",
+            json={"email": unique_email, "password": "wrongpassword"},
+        )
+
+        response = await client.get(
+            f"/api/v1/audit-events?organization_id={org_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        actions = {event["action"] for event in response.json()}
+        assert "auth.login_failed" in actions
+
     async def test_login_with_unknown_email_is_rejected(self, client):
         response = await client.post(
             "/api/v1/auth/login",
