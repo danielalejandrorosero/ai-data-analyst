@@ -108,7 +108,7 @@ async def process_document(db: AsyncSession, document: Document) -> None:
         if document.raw_content is None:
             raise TextExtractionError("El documento no tiene contenido pendiente de procesar")
 
-        text = extract_text(document.raw_content, document.file_format)
+        text = await asyncio.to_thread(extract_text, document.raw_content, document.file_format)
         chunks = chunk_text(
             text,
             max_chars=settings.document_chunk_chars,
