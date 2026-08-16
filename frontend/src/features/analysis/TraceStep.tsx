@@ -10,6 +10,14 @@ const RING_CLASSES: Record<TraceStepTone, string> = {
   pending: 'border-ink-600 text-paper-400',
 }
 
+// Conector horizontal nodo -> card, mismo tono que el aro del nodo.
+const TICK_CLASSES: Record<TraceStepTone, string> = {
+  default: 'bg-signal-500/40',
+  success: 'bg-signal-500/40',
+  error: 'bg-danger-500/40',
+  pending: 'bg-ink-600',
+}
+
 interface TraceStepProps {
   icon: LucideIcon
   tone?: TraceStepTone
@@ -26,7 +34,7 @@ interface TraceStepProps {
 // que un paso exitoso).
 export function TraceStep({ icon: Icon, tone = 'default', isLast = false, spin = false, children }: TraceStepProps) {
   return (
-    <div className="flex gap-4">
+    <div className="flex">
       <div className="flex flex-col items-center">
         <span
           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 bg-ink-950 ${RING_CLASSES[tone]}`}
@@ -35,7 +43,8 @@ export function TraceStep({ icon: Icon, tone = 'default', isLast = false, spin =
         </span>
         {!isLast && <span className="w-px flex-1 bg-ink-700" aria-hidden="true" />}
       </div>
-      <div className="flex-1 pb-4">{children}</div>
+      <span className={`mt-4.5 h-px w-4 shrink-0 ${TICK_CLASSES[tone]}`} aria-hidden="true" />
+      <div className="min-w-0 flex-1 pb-4">{children}</div>
     </div>
   )
 }
