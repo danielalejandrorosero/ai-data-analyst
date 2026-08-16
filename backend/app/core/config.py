@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     agent_sql_timeout_seconds: int = 30
     agent_sql_max_rows: int = 5000
 
+    # Limites de importacion de datasets (RNF-014, RF-011).
+    import_max_file_size_mb: int = 20
+    import_max_rows: int = 200_000
+
     otel_exporter_otlp_endpoint: str = ""
 
     cors_origins: str = "http://localhost:5173"
