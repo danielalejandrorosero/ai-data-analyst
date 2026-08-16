@@ -32,7 +32,7 @@ export function AnalysisHistoryList({ analyses, activeId, onSelect }: AnalysisHi
         <p className="font-body text-xs text-paper-400">Todavía no hiciste ninguna pregunta.</p>
       )}
 
-      <ul className="flex flex-col gap-1 overflow-y-auto">
+      <ul className="flex flex-col divide-y divide-ink-800 overflow-y-auto">
         {analyses.map((analysis) => (
           <li key={analysis.id}>
             <button
