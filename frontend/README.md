@@ -1,32 +1,41 @@
-# React + TypeScript + Vite
+# AI Data Analyst — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + TypeScript + Vite, gestionado con **pnpm**. Consume el backend real (`../backend`)
+bajo `/api`. Ver también el [`README.md`](../README.md) de la raíz del monorepo y
+[`CLAUDE.md`](./CLAUDE.md) para las convenciones de este directorio.
 
-Currently, two official plugins are available:
+## Requisitos
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Node.js 22+
+- pnpm
+- El backend corriendo (`http://localhost:8000` por defecto — ver el README de la raíz)
 
-## React Compiler
+## Comandos
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+cp .env.example .env.local
+pnpm install
+pnpm dev       # dev server en http://localhost:5173
+pnpm test      # Vitest + Testing Library
+pnpm lint      # oxlint
+pnpm build     # type-check (tsc -b) + build de producción a dist/
+pnpm preview   # sirve el build de producción localmente
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+`VITE_API_BASE_URL` (en `.env.local`) apunta al backend — por defecto
+`http://localhost:8000/api`.
+
+## Estado
+
+Login y registro (`/login`, `/register`) funcionales contra el backend real, incluyendo
+manejo de errores de validación (422), toggle de mostrar/ocultar contraseña, y un footer
+de estado (`TraceStrip`) que refleja `/health/ready` en vivo — no es decorativo. El resto
+de las pantallas (datasets, análisis, gráficos) se agregan fase por fase, siguiendo el
+mismo roadmap que el backend (`docs/SRS.md` sección 13 en la raíz del repo).
+
+## Estructura
+
+- `src/api/` — cliente HTTP + hooks de TanStack Query (única vía para llamar al backend)
+- `src/components/` — componentes compartidos entre features
+- `src/features/*` — pantallas y lógica específica de cada área (auth, datasets, ...)
+- `src/lib/` — utilidades y estado compartido (Zustand, hooks genéricos)

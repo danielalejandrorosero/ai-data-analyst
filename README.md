@@ -37,8 +37,11 @@ cancelación, progreso en vivo) + Fase 5 (análisis con Polars, gráficos, expor
   con Recharts. `GET /api/analyses/{id}/artifacts` para los gráficos generados,
   `GET /api/analyses/{id}/export?format=csv|json` para descargar un resultado.
 
-RAG documental es Fase 6 en adelante. El frontend todavía no tiene scaffolding
-(backend-first, ver `docs/adr/`).
+RAG documental es Fase 6 en adelante. El frontend (React + Vite + TypeScript + Tailwind
+CSS v4 + TanStack Query) tiene por ahora las pantallas de login y registro, consumiendo
+el backend real (`frontend/`, ver `frontend/README.md`) — el resto de las pantallas
+(datasets, análisis, gráficos) se construyen fase por fase, siguiendo el mismo roadmap
+que el backend.
 
 **Importante**: desde Fase 4, `POST /api/analyses` responde `202` con `QUEUED` de
 inmediato — el `worker` (ARQ) tiene que estar corriendo para que el análisis avance en
@@ -94,7 +97,9 @@ Ramas: `main` (estable) y `develop` (integración). Ver
 ## Instalación local
 
 Con Docker (recomendado; validado end-to-end — `api`/`postgres`/`redis`/`worker` arriba y
-`/health/ready` en 200):
+`/health/ready` en 200). El servicio `frontend` (dev server de Vite) también está declarado
+en `docker-compose.yml`, corriendo en `http://localhost:5173` — todavía no se validó
+levantándolo con Docker en esta máquina, así que si algo falla ahí avisá:
 
 ```bash
 cp .env.example .env
@@ -140,7 +145,8 @@ Verificación rápida: `curl http://localhost:8000/health/live` debe responder
 
 ## Demo / Screenshots
 
-Pendiente — se agregará cuando exista UI funcional.
+Pendiente agregar capturas — ya existe UI funcional (login/registro en
+`http://localhost:5173`), pero todavía no se subieron imágenes al repo.
 
 ## Desarrollo local
 
@@ -180,7 +186,17 @@ END \$\$;"
 (El `conftest.py` de los tests ya se encarga de crear el schema `datasets` y otorgarle los
 permisos correspondientes en cada corrida — este paso solo crea el rol una vez.)
 
-`frontend/` todavía no tiene scaffolding — pendiente.
+`frontend/` es un proyecto pnpm independiente (no forma parte del uv workspace del
+backend). Comandos desde `frontend/`:
+
+```bash
+cp .env.example .env.local
+pnpm install
+pnpm dev            # http://localhost:5173, requiere la API corriendo
+pnpm test           # Vitest + Testing Library
+pnpm lint           # oxlint
+pnpm build          # type-check (tsc) + build de producción
+```
 
 ## Despliegue
 
