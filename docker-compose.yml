@@ -5,6 +5,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-ai_data_analyst}
+      AGENT_READONLY_PASSWORD: ${AGENT_READONLY_PASSWORD:-changeme_agent_readonly}
     ports:
       - "5432:5432"
     volumes:
@@ -33,6 +34,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_data_analyst}
+      AGENT_DATABASE_URL: postgresql+asyncpg://agent_readonly:${AGENT_READONLY_PASSWORD:-changeme_agent_readonly}@postgres:5432/${POSTGRES_DB:-ai_data_analyst}
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
@@ -49,6 +51,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_data_analyst}
+      AGENT_DATABASE_URL: postgresql+asyncpg://agent_readonly:${AGENT_READONLY_PASSWORD:-changeme_agent_readonly}@postgres:5432/${POSTGRES_DB:-ai_data_analyst}
       REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:

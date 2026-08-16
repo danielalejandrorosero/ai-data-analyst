@@ -23,15 +23,26 @@ fuera del prompt, en código determinístico revisable y testeable.
 
 ## Controles obligatorios (SRS sección 8)
 
-- [ ] Base de datos de solo lectura para consultas generadas por el agente.
-- [ ] Parser/validator SQL que permita `SELECT` y expresiones explícitamente autorizadas.
-- [ ] Bloqueo de DDL y DML en el camino de ejecución del agente.
-- [ ] Timeout de consultas y máximo de filas retornadas.
-- [ ] Rate limit por usuario y tenant.
-- [ ] Separación de secretos, tokens y contexto del prompt.
-- [ ] Sanitización de contenido proveniente de documentos no confiables.
-- [ ] Auditoría de tool calls y decisiones críticas.
-- [ ] Principio de mínimo privilegio para todos los servicios.
+- [x] Base de datos de solo lectura para consultas generadas por el agente. Rol Postgres
+      `agent_readonly` sin permisos sobre `public` (Fase 3a) — probado con UPDATE/lectura
+      cross-schema real bloqueados por permisos, no solo por el validator.
+- [x] Parser/validator SQL que permita `SELECT` y expresiones explícitamente autorizadas.
+      `domain/agent/sql_validator.py` (sqlglot), 25 tests unitarios.
+- [x] Bloqueo de DDL y DML en el camino de ejecución del agente. Doble capa: validator +
+      permisos del rol Postgres (defensa en profundidad, ver ADR y tests de `execution.py`).
+- [x] Timeout de consultas y máximo de filas retornadas. `statement_timeout` a nivel Postgres
+      + `LIMIT` inyectado en el propio SQL validado (no solo truncado post-hoc).
+- [ ] Rate limit por usuario y tenant. Sigue sin implementar (ver nota abajo).
+- [x] Separación de secretos, tokens y contexto del prompt. `LLM_API_KEY` nunca entra al
+      system prompt ni al contexto del modelo — vive solo en config/provider.
+- [ ] Sanitización de contenido proveniente de documentos no confiables. No aplica todavía
+      (RAG documental es Fase 6).
+- [x] Auditoría de tool calls y decisiones críticas. Cada tool call queda en `tool_calls`
+      (RF-023/RF-033); intento de leer tabla ajena queda registrado como `ERROR` sin
+      ejecutarse (ver `test_agent_orchestrator.py::TestOrchestratorBlocksTenantCrossover`).
+- [ ] Principio de mínimo privilegio para todos los servicios. Parcial: `agent_readonly` lo
+      cumple; no es un checkbox de una sola implementación, es un principio transversal que
+      se sigue revisando fase a fase.
 
 Cada casilla se marca cuando el control correspondiente tiene implementación **y** tests
 negativos que intentan superarlo (ver `.claude/rules/testing.md` y `RNF-021`).

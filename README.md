@@ -5,19 +5,25 @@
 
 ## Estado del proyecto
 
-Fase 0 (base del repositorio) + Fase 1 (auth + tenants) + Fase 2 (datasets) completas.
+Fase 0 (base del repositorio) + Fase 1 (auth + tenants) + Fase 2 (datasets) + Fase 3a
+(SQL Analyst MVP) completas.
 
 - Auth real por credenciales + JWT (registro, login, roles OWNER/ADMIN/ANALYST/VIEWER,
-  aislamiento por `organization_id`, audit log): `POST /api/v1/auth/register`,
+  aislamiento por `organization_id`, audit log de éxitos y fallos): `POST /api/v1/auth/register`,
   `POST /api/v1/auth/login`, `GET /api/v1/auth/me`, `POST /api/v1/organizations`,
   `GET /api/v1/audit-events`.
 - Import de datasets CSV/Excel real (no un mock): `POST /api/v1/datasets/import` parsea el
   archivo, valida tamaño/filas, y carga los datos en una tabla física de PostgreSQL (schema
   `datasets`) — no queda como archivo suelto. `GET /api/v1/datasets`,
   `GET /api/v1/datasets/{id}/schema` para el catálogo.
+- Primer agente + SQL seguro real: `POST /api/v1/analyses` — el agente (PydanticAI + Kimi)
+  inspecciona el esquema y ejecuta SQL de solo lectura contra el dataset, validado por un
+  parser real (`sqlglot`) y por un rol Postgres separado sin permisos de escritura ni acceso
+  a las tablas de la plataforma. `GET /api/v1/analyses/{id}` para consultar el resultado y
+  el trace de tool calls.
 
-Agente, SQL seguro y visualización son Fase 3 en adelante. El frontend todavía no tiene
-scaffolding (backend-first, ver `docs/adr/`).
+RF-010 (conectar una fuente Postgres/MySQL externa), visualización y RAG documental son
+Fase 3b en adelante. El frontend todavía no tiene scaffolding (backend-first, ver `docs/adr/`).
 Ver el roadmap completo en [`docs/SRS.md`](docs/SRS.md#13-roadmap-de-implementación).
 
 ## Problema
@@ -75,6 +81,12 @@ cp .env.example .env
 docker compose up -d
 ```
 
+Todo funciona sin `LLM_API_KEY` **excepto** `POST /api/v1/analyses`, que sin eso responde
+`201` con `status: "FAILED"` y un mensaje claro (no rompe el resto de la app). Para que el
+agente funcione de verdad, completá en `.env`: `LLM_PROVIDER`, `LLM_API_KEY`,
+`LLM_BASE_URL` y `LLM_MODEL` con los datos de tu cuenta de Kimi (Moonshot AI) — ver
+[`docs/adr/0009-llm-provider.md`](docs/adr/0009-llm-provider.md).
+
 Sin Docker, corriendo el backend nativo (requiere `uv`, y Postgres/Redis disponibles por
 tu cuenta o vía `docker compose up postgres redis`):
 
@@ -111,6 +123,23 @@ Los tests de integración de `backend/` corren contra una base de datos de test 
 docker compose exec postgres psql -U postgres -c "CREATE DATABASE ai_data_analyst_test;"
 docker compose exec postgres psql -U postgres -d ai_data_analyst_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
 ```
+
+El rol `agent_readonly` (usado por el agente para SQL de solo lectura, ver
+`docs/architecture.md` sección 8) solo se crea automáticamente en la base de datos de
+desarrollo (vía `infrastructure/postgres/init/`, que corre una sola vez al crear el
+volumen). Para la base de test, crearlo a mano una vez:
+
+```bash
+docker compose exec postgres psql -U postgres -d ai_data_analyst_test -c "
+DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'agent_readonly') THEN
+    CREATE ROLE agent_readonly WITH LOGIN PASSWORD 'changeme_agent_readonly';
+  END IF;
+END \$\$;"
+```
+
+(El `conftest.py` de los tests ya se encarga de crear el schema `datasets` y otorgarle los
+permisos correspondientes en cada corrida — este paso solo crea el rol una vez.)
 
 `frontend/` todavía no tiene scaffolding — pendiente.
 

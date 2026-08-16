@@ -105,13 +105,32 @@ cifrado a nivel de aplicación sobre `data_sources.secret_ref` (envelope encrypt
 variable de entorno). Un secret manager externo (Vault, AWS Secrets Manager, etc.) queda como
 mejora de hardening, no como dependencia del MVP.
 
-## 8. SQL seguro
+## 8. SQL seguro (implementado desde Fase 3a)
 
-- El agente nunca usa la sesión ORM de la plataforma para ejecutar SQL generado.
-- Toda consulta del agente pasa por un validador (allowlist de `SELECT` + expresiones
-  autorizadas) antes de llegar a la fuente externa.
-- Las conexiones externas usadas por el agente son siempre de solo lectura.
-- Timeout y límite de filas configurables (ver `RF-032`, `RNF-003` en el SRS).
+- El agente nunca usa la sesión ORM de la plataforma para ejecutar SQL generado — usa un
+  engine SQLAlchemy separado (`domain/agent/execution.py`) contra `AGENT_DATABASE_URL`, con
+  el rol Postgres **`agent_readonly`** (creado en
+  `infrastructure/postgres/init/002-agent-readonly-role.sh`): `SELECT`-only sobre el schema
+  `datasets`, sin ningún permiso sobre `public` (donde viven las tablas de la plataforma).
+  Esto es una segunda capa de defensa independiente del validador — probado directamente
+  (un `UPDATE` o una lectura de `public.users` con SQL sintácticamente válido son rechazados
+  por Postgres mismo, no solo por la app).
+- Toda consulta del agente pasa por `domain/agent/sql_validator.py` (parser real con
+  `sqlglot`, no regex): una sola sentencia `SELECT`, sin `SELECT INTO`, y solo puede
+  referenciar la tabla física exacta del dataset autorizado (ni siquiera otro dataset de la
+  misma organización — aislamiento de tenant también a nivel SQL, no solo a nivel API).
+- Límite de filas (RF-032): el validador inyecta `LIMIT max_rows + 1` en el propio SQL antes
+  de ejecutarlo — Postgres nunca calcula más filas de las necesarias, no se trunca después
+  de traer todo.
+- Timeout (RNF-003): `statement_timeout` fijado a nivel de conexión Postgres, no solo un
+  timeout de Python alrededor de la llamada.
+- Primer agente (`domain/agent/orchestrator.py`, PydanticAI): tools `inspect_schema` +
+  `execute_readonly_sql`, cada tool call queda en `tool_calls` con duración, hash del input
+  y resumen del resultado (RF-023, RF-033). Proveedor de LLM: Kimi (Moonshot AI) vía API
+  compatible con OpenAI — ver `docs/adr/0009-llm-provider.md`.
+- `POST /api/v1/analyses` corre el agente **síncronamente dentro del request** (misma
+  decisión que datasets en Fase 2, sección 12) — el estado `QUEUED`/`PLANNING`/
+  `TOOL_RUNNING`/etc. se refleja en la respuesta final, no hay streaming SSE todavía.
 
 ## 9. Observabilidad
 
