@@ -114,6 +114,13 @@ Usuario -> React -> FastAPI -> Agent Orchestrator
 | RF-013 | El sistema DEBE permitir etiquetar datasets y columnas con metadatos semánticos. | Media | El agente puede usar las anotaciones para mejorar el contexto. |
 | RF-014 | El sistema DEBE detectar cambios básicos de esquema y reflejarlos en el catálogo. | Media | Un cambio de columna/tipo se marca como actualización. |
 
+> **Nota de implementación (Fase 3b, 2026-08-15)**: RF-010 se implementó solo para
+> PostgreSQL. MySQL queda diferido de forma explícita — requiere una dependencia async
+> nueva y su propia infraestructura de test con una instancia real (no mocks, ver
+> `.claude/rules/testing.md`) — hasta que haya necesidad concreta de soportarlo. El
+> requisito en sí no cambia (sigue pidiendo ambos motores); ver el detalle de la decisión
+> en `docs/architecture.md` sección 8.1 y `docs/security/threat-model.md`.
+
 ### 3.3 Agente de análisis
 
 | ID | Requisito | Prioridad | Criterio de aceptación |

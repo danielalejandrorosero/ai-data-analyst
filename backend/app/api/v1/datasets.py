@@ -10,8 +10,15 @@ from app.db.models.user import User
 from app.db.session import get_db
 from app.domain.auth import service as auth_service
 from app.domain.auth.dependencies import get_current_user
+from app.domain.datasets import connections as connections_service
 from app.domain.datasets import service as datasets_service
-from app.domain.datasets.schemas import DatasetOut, DatasetSchemaOut
+from app.domain.datasets.connections import ConnectionTestError
+from app.domain.datasets.schemas import (
+    DatasetOut,
+    DatasetSchemaOut,
+    ExternalConnectionCreateRequest,
+    ExternalConnectionOut,
+)
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -65,6 +72,41 @@ async def list_datasets(
 
     datasets = await datasets_service.list_datasets(db, organization_id=organization_id)
     return [DatasetOut.model_validate(dataset) for dataset in datasets]
+
+
+@router.post(
+    "/connections", response_model=ExternalConnectionOut, status_code=status.HTTP_201_CREATED
+)
+async def register_connection(
+    payload: ExternalConnectionCreateRequest,
+    organization_id: Annotated[uuid.UUID, Query()],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> ExternalConnectionOut:
+    """RF-010 / CU-03. Solo OWNER/ADMIN pueden registrar conexiones
+    externas. La conexion se prueba con un SELECT 1 controlado ANTES de
+    guardar nada - si falla, no queda ningun rastro de las credenciales
+    (ni siquiera cifradas)."""
+    membership = await auth_service.get_membership(
+        db, user_id=current_user.id, organization_id=organization_id
+    )
+    if membership is None or membership.role not in (Role.OWNER, Role.ADMIN):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No autorizado")
+
+    try:
+        await connections_service.test_postgres_connection(payload)
+    except ConnectionTestError as exc:
+        await connections_service.record_connection_test_failure(
+            db, organization_id=organization_id, actor_id=current_user.id, payload=payload
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+    source = await connections_service.register_external_connection(
+        db, organization_id=organization_id, actor_id=current_user.id, payload=payload
+    )
+    return ExternalConnectionOut.model_validate(source)
 
 
 @router.get("/{dataset_id}/schema", response_model=DatasetSchemaOut)
