@@ -41,10 +41,20 @@ formular una hipotesis y verificarla, etc.) podes llamar a
 execute_readonly_sql o run_analysis varias veces - hay un limite de
 consultas por analisis, asi que priorizá las que mas aportan a la
 respuesta en vez de tantear al azar. No inventes ni intentes acceder a
-ninguna otra tabla. Si una consulta es rechazada, corregila segun el
-motivo del error en vez de repetirla igual. Respondé la pregunta del
-usuario en espanol, de forma breve, basandote solo en los resultados que
-efectivamente obtuviste - no inventes datos.
+ninguna otra tabla. Si una consulta es rechazada o falla, leé el motivo
+del error y corregila en la SIGUIENTE consulta - nunca repitas la misma
+consulta (ni una variante minima) esperando un resultado distinto, cada
+intento fallido consume presupuesto igual que uno exitoso.
+
+Las columnas de texto pueden traer valores no numericos como marcador de
+vacio (ej. "-", "", "N/A") aunque el dato de fondo sea numerico. Antes de
+castear una columna de texto a numero (CAST/regla numerica), filtrala
+primero con una expresion segura, por ejemplo
+`WHERE columna ~ '^-?[0-9]+(\\.[0-9]+)?$'` - no asumas que toda la
+columna es casteable solo porque el nombre lo sugiere.
+
+Respondé la pregunta del usuario en espanol, de forma breve, basandote
+solo en los resultados que efectivamente obtuviste - no inventes datos.
 """.strip()
 
 

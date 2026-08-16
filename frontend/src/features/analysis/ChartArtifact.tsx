@@ -3,6 +3,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Line,
   LineChart,
   Pie,
@@ -15,6 +16,10 @@ import {
   YAxis,
 } from 'recharts'
 import type { AnalysisArtifact } from '../../api/analyses'
+
+function formatValue(value: unknown): string {
+  return typeof value === 'number' ? value.toLocaleString('es-AR') : String(value ?? '')
+}
 
 // Paleta de datos derivada del acento ambar de la marca (ver
 // frontend/src/index.css) - signal-500 es la serie principal, el resto solo
@@ -70,12 +75,14 @@ export function ChartArtifact({ artifact }: ChartArtifactProps) {
               </Pie>
             </PieChart>
           ) : (
-            <BarChart data={data}>
+            <BarChart data={data} margin={{ top: 24 }}>
               <CartesianGrid stroke="#20252d" strokeDasharray="3 3" />
               <XAxis dataKey={x_field} tick={AXIS_STYLE} stroke="#20252d" />
-              <YAxis tick={AXIS_STYLE} stroke="#20252d" />
-              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#20252d' }} />
-              <Bar dataKey={y_field} fill={PALETTE[0]} radius={[3, 3, 0, 0]} />
+              <YAxis tick={AXIS_STYLE} stroke="#20252d" tickFormatter={(v: number) => v.toLocaleString('es-AR')} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#20252d' }} formatter={formatValue} />
+              <Bar dataKey={y_field} fill={PALETTE[0]} radius={[3, 3, 0, 0]}>
+                <LabelList dataKey={y_field} position="top" formatter={formatValue} fill="#edeff2" fontSize={11} fontFamily="IBM Plex Mono, monospace" />
+              </Bar>
             </BarChart>
           )}
         </ResponsiveContainer>

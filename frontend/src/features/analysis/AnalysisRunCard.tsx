@@ -1,4 +1,6 @@
+import type { ReactNode } from 'react'
 import { CircleCheck, Loader2 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import {
   isTerminalStatus,
   useAnalysis,
@@ -7,9 +9,10 @@ import {
   useCancelAnalysis,
   useExportAnalysis,
 } from '../../api/analyses'
-import { pairToolCallsWithResults } from './toolTrace'
+import { pairToolCallsWithResults, toolIcon } from './toolTrace'
 import { ToolCallBlock } from './ToolCallBlock'
 import { StatusBanner } from './StatusBanner'
+import { TraceStep, type TraceStepTone } from './TraceStep'
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
@@ -51,6 +54,60 @@ export function AnalysisRunCard({ analysisId, token, canCancel }: AnalysisRunCar
   const traced = pairToolCallsWithResults(analysis)
   const artifacts = artifactsQuery.data ?? []
 
+  interface Step {
+    key: string
+    icon: LucideIcon
+    tone: TraceStepTone
+    spin?: boolean
+    node: ReactNode
+  }
+
+  const steps: Step[] = traced.map((t) => ({
+    key: `tool-${t.index}`,
+    icon: toolIcon(t.toolCall.tool),
+    tone: t.toolCall.status === 'ERROR' ? 'error' : 'success',
+    node: (
+      <ToolCallBlock
+        traced={t}
+        artifacts={artifacts}
+        exporting={exportMutation.isPending}
+        onExport={(queryIndex, format) => exportMutation.mutate({ analysisId, token, format, queryIndex })}
+      />
+    ),
+  }))
+
+  if (!isTerminal || analysis.status !== 'COMPLETED') {
+    steps.push({
+      key: 'status',
+      icon: Loader2,
+      tone: 'pending',
+      spin: !isTerminal,
+      node: (
+        <StatusBanner
+          status={analysis.status}
+          error={analysis.error}
+          onCancel={() => cancel.mutate(analysisId)}
+          cancelling={cancel.isPending}
+          canCancel={canCancel}
+        />
+      ),
+    })
+  }
+
+  if (analysis.answer) {
+    steps.push({
+      key: 'answer',
+      icon: CircleCheck,
+      tone: 'success',
+      node: (
+        <div className="rounded-lg border border-signal-500/30 bg-signal-500/5 p-4">
+          <p className="mb-2 font-body text-sm font-semibold text-paper-100">Respuesta</p>
+          <p className="whitespace-pre-wrap font-body text-sm leading-relaxed text-paper-300">{analysis.answer}</p>
+        </div>
+      ),
+    })
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
@@ -60,37 +117,13 @@ export function AnalysisRunCard({ analysisId, token, canCancel }: AnalysisRunCar
         </div>
       </div>
 
-      {traced.map((t) => (
-        <ToolCallBlock
-          key={t.index}
-          traced={t}
-          artifacts={artifacts}
-          exporting={exportMutation.isPending}
-          onExport={(queryIndex, format) =>
-            exportMutation.mutate({ analysisId, token, format, queryIndex })
-          }
-        />
-      ))}
-
-      {!isTerminal || analysis.status !== 'COMPLETED' ? (
-        <StatusBanner
-          status={analysis.status}
-          error={analysis.error}
-          onCancel={() => cancel.mutate(analysisId)}
-          cancelling={cancel.isPending}
-          canCancel={canCancel}
-        />
-      ) : null}
-
-      {analysis.answer && (
-        <div className="rounded-lg border border-signal-500/30 bg-signal-500/5 p-4">
-          <div className="mb-2 flex items-center gap-2">
-            <CircleCheck className="h-4 w-4 text-signal-500" aria-hidden="true" />
-            <p className="font-body text-sm font-semibold text-paper-100">Respuesta</p>
-          </div>
-          <p className="whitespace-pre-wrap font-body text-sm leading-relaxed text-paper-300">{analysis.answer}</p>
-        </div>
-      )}
+      <div className="flex flex-col">
+        {steps.map((step, index) => (
+          <TraceStep key={step.key} icon={step.icon} tone={step.tone} spin={step.spin} isLast={index === steps.length - 1}>
+            {step.node}
+          </TraceStep>
+        ))}
+      </div>
     </div>
   )
 }

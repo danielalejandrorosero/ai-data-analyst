@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, CircleCheck, CircleX, Download } from 'lucide-react'
 import type { AnalysisArtifact } from '../../api/analyses'
-import { toolIcon, toolLabel, type TracedToolCall } from './toolTrace'
+import { toolLabel, type TracedToolCall } from './toolTrace'
 import { highlightSql } from './sqlHighlight'
 import { ResultTable } from './ResultTable'
 import { ChartArtifact } from './ChartArtifact'
@@ -28,7 +28,6 @@ interface ToolCallBlockProps {
 export function ToolCallBlock({ traced, artifacts, onExport, exporting }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(traced.toolCall.status === 'ERROR')
   const { toolCall, result, resultIndex } = traced
-  const Icon = toolIcon(toolCall.tool)
   const isError = toolCall.status === 'ERROR'
 
   const chartArtifact =
@@ -44,13 +43,6 @@ export function ToolCallBlock({ traced, artifacts, onExport, exporting }: ToolCa
         className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
       >
         <div className="flex items-center gap-2.5">
-          <span
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
-              isError ? 'bg-danger-500/10 text-danger-500' : 'bg-signal-500/10 text-signal-500'
-            }`}
-          >
-            <Icon className="h-4 w-4" aria-hidden="true" />
-          </span>
           <span className="font-body text-sm font-semibold text-paper-100">{toolLabel(toolCall.tool)}</span>
           <span
             className={`flex items-center gap-1 font-mono text-[11px] ${
