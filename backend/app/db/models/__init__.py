@@ -4,6 +4,7 @@ from app.db.models.analysis_artifact import AnalysisArtifact, ArtifactType
 from app.db.models.audit_event import AuditEvent
 from app.db.models.data_source import DataSource
 from app.db.models.dataset import Dataset
+from app.db.models.document import Document, DocumentChunk, DocumentStatus
 from app.db.models.membership import Membership, Role
 from app.db.models.organization import Organization
 from app.db.models.tool_call import ToolCall, ToolCallStatus
@@ -19,6 +20,9 @@ __all__ = [
     "AuditEvent",
     "DataSource",
     "Dataset",
+    "Document",
+    "DocumentChunk",
+    "DocumentStatus",
     "Membership",
     "Organization",
     "Role",

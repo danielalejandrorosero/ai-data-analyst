@@ -55,6 +55,19 @@ class Settings(BaseSettings):
     import_max_file_size_mb: int = 20
     import_max_rows: int = 200_000
 
+    # RAG documental (SRS 3.7, RF-060 a RF-065, ADR-0011). El modelo es
+    # configurable pero la dimension del vector (384) esta fija en el
+    # schema - cambiar a un modelo de otra dimension exige migracion +
+    # re-indexar, no solo editar esto.
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    document_max_file_size_mb: int = 20
+    document_chunk_chars: int = 1200
+    document_chunk_overlap_chars: int = 200
+    document_search_top_k: int = 8
+    # Presupuesto propio de search_documents por analisis (RF-063) -
+    # separado del de consultas SQL, mismo motivo anti-loop.
+    agent_max_doc_searches_per_run: int = 3
+
     otel_exporter_otlp_endpoint: str = ""
 
     cors_origins: str = "http://localhost:5173"

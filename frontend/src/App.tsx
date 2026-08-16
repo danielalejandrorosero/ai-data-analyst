@@ -3,6 +3,7 @@ import { LoginPage } from './features/auth/LoginPage'
 import { RegisterPage } from './features/auth/RegisterPage'
 import { DatasetsPage } from './features/datasets/DatasetsPage'
 import { AnalysisPage } from './features/analysis/AnalysisPage'
+import { DocumentsPage } from './features/documents/DocumentsPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
 export default function App() {
@@ -23,6 +24,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <AnalysisPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/documentos"
+        element={
+          <ProtectedRoute>
+            <DocumentsPage />
           </ProtectedRoute>
         }
       />

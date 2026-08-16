@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { Database, LineChart, Link2, Settings } from 'lucide-react'
+import { Database, FileText, LineChart, Link2, Settings } from 'lucide-react'
 import { Logo } from './Logo'
 import { DotGridGlow } from './DotGridGlow'
 import { TraceStrip } from './TraceStrip'
@@ -10,6 +10,7 @@ import { useMe, useLogout } from '../api/auth'
 const NAV_ITEMS = [
   { key: 'datasets', label: 'Datasets', icon: Database, href: '/datasets' },
   { key: 'analisis', label: 'Análisis', icon: LineChart, href: '/analisis' },
+  { key: 'documentos', label: 'Documentos', icon: FileText, href: '/documentos' },
   { key: 'conexiones', label: 'Conexiones', icon: Link2, href: null },
   { key: 'configuracion', label: 'Configuración', icon: Settings, href: null },
 ] as const

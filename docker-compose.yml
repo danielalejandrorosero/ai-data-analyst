@@ -38,6 +38,11 @@ services:
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
+    volumes:
+      # Cache compartido del modelo de embeddings (ADR-0011): la primera
+      # busqueda/ingesta descarga ~500MB de ONNX - sin esto se re-descarga
+      # en cada rebuild de la imagen.
+      - embedding-model-cache:/root/.cache
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,6 +58,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_data_analyst}
       AGENT_DATABASE_URL: postgresql+asyncpg://agent_readonly:${AGENT_READONLY_PASSWORD:-changeme_agent_readonly}@postgres:5432/${POSTGRES_DB:-ai_data_analyst}
       REDIS_URL: redis://redis:6379/0
+    volumes:
+      - embedding-model-cache:/root/.cache
     depends_on:
       postgres:
         condition: service_healthy
@@ -103,3 +110,4 @@ services:
 volumes:
   postgres_data:
   pgadmin_data:
+  embedding-model-cache:

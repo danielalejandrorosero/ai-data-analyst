@@ -1,7 +1,8 @@
+from app.core.config import settings
 from arq.connections import RedisSettings
 
-from app.core.config import settings
 from tasks.analysis import run_analysis_job
+from tasks.documents import process_document_job
 
 
 class WorkerSettings:
@@ -15,7 +16,7 @@ class WorkerSettings:
     de forma completamente inesperada.
     """
 
-    functions = [run_analysis_job]
+    functions = [run_analysis_job, process_document_job]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     job_timeout = settings.agent_sql_timeout_seconds * 8
     # RF-025: sin esto, Job.abort() (POST /analyses/{id}/cancel) solo

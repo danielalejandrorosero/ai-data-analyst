@@ -159,6 +159,24 @@ Usuario -> React -> FastAPI -> Agent Orchestrator
 | RF-052 | El sistema DEBE registrar eventos de seguridad, conexiones, consultas y ejecuciones de agentes. | Alta | Los eventos son consultables por Owner/Admin. |
 | RF-053 | El sistema DEBE soportar retención configurable de logs y resultados. | Media | Los datos vencidos se archivan o eliminan según política. |
 
+### 3.7 RAG documental
+
+> **Nota de versión (2026-08-16)**: sección agregada al especificar la Fase 6. El documento
+> original (v1.0) mencionaba `search_documents`, pgvector y "RAG documental" en la
+> arquitectura y el roadmap sin RF numerados — `architecture.md` sección 11 exigía
+> escribirlos antes de implementar. Alcance acordado con el usuario: formatos PDF/TXT/MD/DOCX,
+> embeddings locales (ver `adr/0011-local-embeddings.md`), búsqueda disponible tanto para el
+> usuario en la UI como para el agente vía tool.
+
+| ID | Requisito | Prioridad | Criterio de aceptación |
+|---|---|---|---|
+| RF-060 | El sistema DEBE permitir subir documentos PDF, TXT, Markdown y DOCX por organización, con los mismos roles de escritura que los datasets (OWNER/ADMIN/ANALYST). | Alta | Un archivo válido crea un documento consultable; formato no soportado o tamaño excedido se rechaza con error explícito. |
+| RF-061 | El sistema DEBE extraer el texto, fragmentarlo e indexarlo con embeddings en pgvector de forma asíncrona, con estado visible (PROCESSING/READY/FAILED). | Alta | Un documento subido pasa a READY con sus fragmentos indexados, o a FAILED con el motivo, nunca queda colgado. |
+| RF-062 | El sistema DEBE ofrecer búsqueda híbrida (semántica por embeddings + léxica por full-text) sobre los documentos del tenant, accesible a cualquier miembro. | Alta | Una consulta devuelve fragmentos relevantes solo de documentos de la organización del usuario. |
+| RF-063 | El agente DEBE disponer de la tool `search_documents` (consulta → fragmentos relevantes), auditada como cualquier otra tool call. | Alta | La tool queda registrada en el trace con su consulta y resultados; el agente puede citar los fragmentos en su respuesta. |
+| RF-064 | El contenido de los documentos SE TRATA como no confiable (RNF-015): los fragmentos recuperados no pueden alterar las políticas de ejecución del agente. | Crítica | Instrucciones embebidas en un documento no cambian el comportamiento de las tools ni los límites del agente. |
+| RF-065 | El sistema DEBE permitir listar y eliminar documentos, con eliminación restringida a OWNER/ADMIN y siempre dentro del tenant. | Alta | Eliminar un documento elimina sus fragmentos; un usuario de otro tenant no puede ver ni borrar el documento. |
+
 ---
 
 ## 4. Requisitos no funcionales

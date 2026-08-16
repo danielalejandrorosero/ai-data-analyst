@@ -60,3 +60,10 @@ class AgentDeps:
     # await, para que create_chart tambien sea atomico frente a tool calls
     # concurrentes del mismo turno.
     chart_count: int = 0
+    # RF-063 (search_documents): la tool necesita el tenant para acotar la
+    # busqueda documental. Opcional con default None para no romper a los
+    # callers/tests previos a Fase 6 - la tool responde ERROR controlado
+    # si falta, nunca busca sin tenant.
+    organization_id: uuid.UUID | None = None
+    max_doc_searches_per_run: int = 3
+    doc_search_count: int = 0

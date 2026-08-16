@@ -35,6 +35,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 async def _prepare_database():
     engine = create_async_engine(settings.database_url)
     async with engine.begin() as conn:
+        # Fase 6 (document_chunks.embedding es vector(384)): la extension
+        # tiene que existir ANTES de create_all - en la DB real la crea la
+        # migracion c07af8be762c, aca no corre Alembic.
+        await conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
         # El schema "datasets" (tablas fisicas dinamicas de datasets
         # importados) no vive en Base.metadata - se limpia aparte.
         await conn.execute(sa.text("DROP SCHEMA IF EXISTS datasets CASCADE"))

@@ -1,4 +1,4 @@
-import { Database, Search, SlidersHorizontal, BarChart3, Wrench } from 'lucide-react'
+import { Database, FileSearch, Search, SlidersHorizontal, BarChart3, Wrench } from 'lucide-react'
 import type { Analysis, QueryResult, ToolCall } from '../../api/analyses'
 
 export const TOOL_LABELS: Record<string, string> = {
@@ -6,6 +6,7 @@ export const TOOL_LABELS: Record<string, string> = {
   execute_readonly_sql: 'Consulta SQL',
   run_analysis: 'Post-procesamiento',
   create_chart: 'Generando gráfico',
+  search_documents: 'Buscando en documentos',
 }
 
 export const TOOL_ICONS: Record<string, typeof Search> = {
@@ -13,6 +14,7 @@ export const TOOL_ICONS: Record<string, typeof Search> = {
   execute_readonly_sql: Database,
   run_analysis: SlidersHorizontal,
   create_chart: BarChart3,
+  search_documents: FileSearch,
 }
 
 export function toolLabel(tool: string): string {
