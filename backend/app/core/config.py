@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # artifacts de tipo grafico (create_chart) - acota cuantas filas
     # analysis_artifacts puede generar un unico analysis.
     agent_max_charts_per_run: int = 5
+    # Memoria entre analisis del mismo dataset (docs/adr/0010-agent-history-context.md) -
+    # cuantos analisis COMPLETED previos se le pasan como contexto de
+    # solo lectura al agente. "Todo el historial" en espiritu, acotado en
+    # cantidad para no inflar sin limite el prompt/costo de cada corrida.
+    agent_history_max_analyses: int = 10
 
     # Limites de importacion de datasets (RNF-014, RF-011).
     import_max_file_size_mb: int = 20

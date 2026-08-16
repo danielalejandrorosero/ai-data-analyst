@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pydantic_ai import Agent, Tool
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -98,6 +99,51 @@ def build_agent(model: OpenAIChatModel | None = None) -> Agent[AgentDeps, str]:
     )
 
 
+async def _fetch_history(db: AsyncSession, *, dataset_id: uuid.UUID, exclude_id: uuid.UUID) -> list[Analysis]:
+    """docs/adr/0010-agent-history-context.md. Analisis COMPLETED previos
+    del MISMO dataset, mas recientes primero - el dataset ya acota por
+    tenant (un dataset pertenece a una unica organizacion), asi que no
+    hace falta un filtro de organization_id aparte para que esto respete
+    el aislamiento de tenant."""
+    result = await db.execute(
+        select(Analysis)
+        .where(
+            Analysis.dataset_id == dataset_id,
+            Analysis.status == AnalysisStatus.COMPLETED,
+            Analysis.id != exclude_id,
+        )
+        .order_by(Analysis.created_at.desc())
+        .limit(settings.agent_history_max_analyses)
+    )
+    return list(result.scalars())
+
+
+def _build_history_context(previous: list[Analysis]) -> str:
+    """Texto de solo lectura que se antepone a la pregunta actual - nunca
+    se re-ejecutan las tool calls de un analisis previo, solo se le pasa
+    al modelo su pregunta/respuesta/SQL ya auditados como referencia."""
+    if not previous:
+        return ""
+
+    lines = [
+        "Contexto de analisis previos sobre este mismo dataset (el mas "
+        "reciente primero). Es solo referencia, ya fue auditado y no hace "
+        "falta repetirlo - pero si la pregunta actual necesita datos "
+        "frescos o mas precision, volve a consultarlos con las tools en "
+        "vez de asumir que el dato viejo sigue siendo el mismo.",
+    ]
+    for previous_analysis in previous:
+        lines.append(f"- Pregunta: {previous_analysis.question}")
+        if previous_analysis.answer:
+            lines.append(f"  Respuesta: {previous_analysis.answer}")
+        for entry in previous_analysis.result_json or []:
+            sql = entry.get("sql")
+            if sql:
+                lines.append(f"  SQL usado: {sql}")
+
+    return "\n".join(lines)
+
+
 async def _set_status(db: AsyncSession, analysis: Analysis, status: AnalysisStatus) -> None:
     analysis.status = status
     await db.flush()
@@ -159,6 +205,10 @@ async def run_analysis(
 
     overall_timeout = settings.agent_sql_timeout_seconds * 4
 
+    previous_analyses = await _fetch_history(db, dataset_id=dataset.id, exclude_id=analysis.id)
+    history_context = _build_history_context(previous_analyses)
+    prompt = f"{history_context}\n\nPregunta actual: {analysis.question}" if history_context else analysis.question
+
     try:
         # build_agent() tambien puede fallar (ej. LLM_API_KEY sin
         # configurar) - tiene que quedar DENTRO del try, si no ese error
@@ -166,7 +216,7 @@ async def run_analysis(
         # endpoint devuelve 500 en vez de dejar el analysis en FAILED.
         active_agent = agent or build_agent()
         result = await asyncio.wait_for(
-            active_agent.run(analysis.question, deps=deps), timeout=overall_timeout
+            active_agent.run(prompt, deps=deps), timeout=overall_timeout
         )
     except TimeoutError:
         agent_run.status = AgentRunStatus.FAILED
