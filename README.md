@@ -96,10 +96,8 @@ Ramas: `main` (estable) y `develop` (integración). Ver
 
 ## Instalación local
 
-Con Docker (recomendado; validado end-to-end — `api`/`postgres`/`redis`/`worker` arriba y
-`/health/ready` en 200). El servicio `frontend` (dev server de Vite) también está declarado
-en `docker-compose.yml`, corriendo en `http://localhost:5173` — todavía no se validó
-levantándolo con Docker en esta máquina, así que si algo falla ahí avisá:
+Con Docker (recomendado; validado end-to-end — `api`/`postgres`/`redis`/`worker`/`frontend`
+arriba, `/health/ready` en 200 y `http://localhost:5173` sirviendo la app):
 
 ```bash
 cp .env.example .env
