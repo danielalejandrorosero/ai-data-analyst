@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Database, LineChart, Link2, Settings } from 'lucide-react'
 import { Logo } from './Logo'
+import { DotGridGlow } from './DotGridGlow'
 import { TraceStrip } from './TraceStrip'
 import { SystemStatus } from './SystemStatus'
 import { useMe, useLogout } from '../api/auth'
@@ -25,8 +26,9 @@ export function AppShell({ active, children }: AppShellProps) {
   const initials = (me.data?.email ?? '??').slice(0, 2).toUpperCase()
 
   return (
-    <div className="flex min-h-screen flex-col bg-ink-950">
-      <header className="flex items-center justify-between border-b border-ink-700 px-8 py-4">
+    <div className="relative flex min-h-screen flex-col overflow-hidden bg-ink-950">
+      <DotGridGlow />
+      <header className="relative z-10 flex items-center justify-between border-b border-ink-700 px-8 py-4">
         <Logo />
         <button
           type="button"
@@ -43,7 +45,7 @@ export function AppShell({ active, children }: AppShellProps) {
         </button>
       </header>
 
-      <div className="flex flex-1">
+      <div className="relative z-10 flex flex-1">
         <nav className="w-56 shrink-0 border-r border-ink-700 px-4 py-6">
           <ul className="flex flex-col gap-1">
             {NAV_ITEMS.map((item) => {
@@ -76,14 +78,16 @@ export function AppShell({ active, children }: AppShellProps) {
         <main className="flex-1 px-8 py-8">{children}</main>
       </div>
 
-      <TraceStrip
-        segments={[
-          'session: authenticated',
-          `role: ${membership?.role ?? '—'}`,
-          `tenant: ${membership?.organization_name ?? '—'}`,
-        ]}
-        right={<SystemStatus />}
-      />
+      <div className="relative z-10">
+        <TraceStrip
+          segments={[
+            'session: authenticated',
+            `role: ${membership?.role ?? '—'}`,
+            `tenant: ${membership?.organization_name ?? '—'}`,
+          ]}
+          right={<SystemStatus />}
+        />
+      </div>
     </div>
   )
 }
