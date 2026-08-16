@@ -8,7 +8,7 @@ description: Exports FastAPI's generated OpenAPI spec into docs/api/ after backe
 Exporta el OpenAPI generado automáticamente por FastAPI hacia `docs/api/`.
 
 ## Cuándo usarla
-Después de agregar, modificar o eliminar un endpoint bajo `/api/v1` (típicamente junto con
+Después de agregar, modificar o eliminar un endpoint bajo `/api` (típicamente junto con
 `create-endpoint`), para mantener `docs/api/` alineado con el código real en vez de con
 lo que el SRS describía originalmente en la sección 7.
 

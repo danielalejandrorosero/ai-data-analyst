@@ -4,8 +4,8 @@ Servicios de dominio desacoplados: auth, datasets, analysis, agent, audit, obser
 FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic. Gestionado con **uv**.
 
 ## Reglas específicas
-- Toda ruta nueva va bajo `/api/v1/...`; un cambio incompatible crea nueva versión, no
-  modifica el contrato existente (RNF-023).
+- Toda ruta nueva va bajo `/api/...`, sin versión en la URL mientras no haya un consumidor
+  externo real (RNF-023) — el contrato evoluciona en el mismo path vía commits.
 - Todo endpoint protegido valida rol (OWNER/ADMIN/ANALYST/VIEWER) y `organization_id` —
   nunca confiar solo en el frontend.
 - El SQL del agente nunca pasa por el ORM de la plataforma ni reutiliza sesiones con

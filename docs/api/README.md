@@ -1,6 +1,7 @@
 # API — AI Data Analyst
 
-Este directorio contendrá la documentación de la API versionada `/api/v1`.
+Este directorio contendrá la documentación de la API, expuesta bajo `/api` (sin versión en
+la URL — ver RNF-023 en el SRS).
 
 ## Estado actual (Fase 0)
 
@@ -10,7 +11,7 @@ API de referencia (rutas, propósito) está definida en la sección 7 del
 
 ## Plan para fases posteriores
 
-- A partir de Fase 1, FastAPI expondrá `/api/v1/openapi.json` automáticamente.
+- A partir de Fase 1, FastAPI expondrá `/api/openapi.json` automáticamente.
 - Este directorio guardará un snapshot exportado del OpenAPI (`openapi.json` /
   `openapi.yaml`) como referencia versionada, actualizado en cada release relevante.
 - Ejemplos de requests/responses reales (incluyendo ejemplos de preguntas y respuestas del

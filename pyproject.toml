@@ -1,0 +1,10 @@
+[tool.uv.workspace]
+members = ["backend", "workers"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["backend/app", "workers/tasks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

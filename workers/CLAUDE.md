@@ -4,6 +4,12 @@ ARQ sobre Redis, gestionado con **uv**. Ejecuta imports de datasets y el ciclo d
 (`QUEUED -> PLANNING -> TOOL_RUNNING -> ANALYZING -> GENERATING_RESPONSE ->
 COMPLETED/FAILED/CANCELLED/TIMED_OUT`).
 
+El paquete instalable de esta app se llama `tasks/` (no `app/`): `backend/` y `workers/`
+comparten un mismo venv de workspace (uv workspace), y dos paquetes no pueden instalarse
+ambos como un módulo top-level llamado `app` en el mismo entorno. `workers` depende de
+`backend` como miembro del workspace, así que el código de `workers/tasks/*` importa
+directamente `from app.domain...`, `from app.core...`, etc.
+
 ## Reglas específicas
 - Cada job respeta el timeout configurable (default 30s, RNF-003) y debe abandonar el
   procesamiento si el análisis fue cancelado (RF-025).

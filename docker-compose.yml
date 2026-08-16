@@ -1,0 +1,98 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_data_analyst}
+      AGENT_READONLY_PASSWORD: ${AGENT_READONLY_PASSWORD:-changeme_agent_readonly}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/backend.Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_data_analyst}
+      AGENT_DATABASE_URL: postgresql+asyncpg://agent_readonly:${AGENT_READONLY_PASSWORD:-changeme_agent_readonly}@postgres:5432/${POSTGRES_DB:-ai_data_analyst}
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/worker.Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_data_analyst}
+      AGENT_DATABASE_URL: postgresql+asyncpg://agent_readonly:${AGENT_READONLY_PASSWORD:-changeme_agent_readonly}@postgres:5432/${POSTGRES_DB:-ai_data_analyst}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # pgAdmin: herramienta de desarrollo local para inspeccionar la DB a mano
+  # (no es parte del roadmap del SRS, es tooling de conveniencia - no se
+  # expone en ningun despliegue real, solo para uso local).
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@local.dev}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-changeme_pgladmin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Dev server de Vite, no build de produccion - el frontend se despliega
+  # en Vercel mas adelante (docs/adr/0007-frontend-rendering-strategy.md,
+  # docs/deployment.md). Esto es solo para levantar el stack completo local.
+  frontend:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/frontend.Dockerfile
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000/api
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+  # prometheus, grafana y reverse-proxy se agregan en Fase 7 del roadmap
+  # (docs/SRS.md seccion 13).
+
+volumes:
+  postgres_data:
+  pgadmin_data:

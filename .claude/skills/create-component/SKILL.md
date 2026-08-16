@@ -12,6 +12,9 @@ Crea un componente React/TypeScript nuevo siguiendo `frontend/CLAUDE.md` y
 Al agregar un componente reutilizable (no una página completa — para eso usa `create-page`).
 
 ## Qué debe garantizar
+0. Dirección visual vía `frontend-design`/`ui-ux-pro-max` para cualquier decisión estética
+   nueva, e `impeccable` sobre el resultado antes de darlo por terminado — ver
+   "Herramientas de diseño obligatorias" en `frontend/CLAUDE.md`.
 1. Props tipadas explícitamente (interface/type), sin `any`.
 2. Estilos con Tailwind CSS, reutilizando tokens/clases ya existentes en el proyecto en
    vez de valores mágicos sueltos (ver `ui-consistency-review`).

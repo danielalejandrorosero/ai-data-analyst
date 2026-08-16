@@ -19,7 +19,9 @@ Al mostrar un gráfico generado a partir de un `analysis_artifact` de tipo chart
 2. El usuario puede ver la tabla de datos subyacente y la consulta SQL origen desde el
    propio gráfico (RF-042, trazabilidad visualización -> evidencia).
 3. Sigue la guía de diseño de la skill `dataviz` (forma, color, accesibilidad) para
-   mantener consistencia visual entre todos los gráficos del producto.
+   mantener consistencia visual entre todos los gráficos del producto, y pasa por
+   `frontend-design`/`ui-ux-pro-max`/`impeccable` como el resto de la UI del proyecto —
+   ver "Herramientas de diseño obligatorias" en `frontend/CLAUDE.md`.
 4. Responsive en desktop y tablet (RNF-030); estados de carga/vacío manejados
    explícitamente.
 

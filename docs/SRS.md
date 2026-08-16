@@ -54,7 +54,7 @@ Quedan fuera del MVP las mutaciones sobre bases de datos fuente, administración
 
 ## 2. Descripción general del sistema
 
-AI Data Analyst será una aplicación web multiusuario con frontend React/TypeScript y backend FastAPI/Python. El backend expondrá una API versionada, administrará autenticación y autorización, coordinará agentes de IA, ejecutará consultas en modo seguro y procesará datos con Polars cuando el análisis requiera operaciones fuera del motor SQL.
+AI Data Analyst será una aplicación web multiusuario con frontend React/TypeScript y backend FastAPI/Python. El backend expondrá la API bajo `/api` (ver RNF-023), administrará autenticación y autorización, coordinará agentes de IA, ejecutará consultas en modo seguro y procesará datos con Polars cuando el análisis requiera operaciones fuera del motor SQL.
 
 ### 2.1 Flujo principal
 
@@ -113,6 +113,13 @@ Usuario -> React -> FastAPI -> Agent Orchestrator
 | RF-012 | El sistema DEBE inspeccionar esquemas, tablas, columnas, tipos y metadatos mínimos. | Alta | El catálogo muestra estructura actualizada. |
 | RF-013 | El sistema DEBE permitir etiquetar datasets y columnas con metadatos semánticos. | Media | El agente puede usar las anotaciones para mejorar el contexto. |
 | RF-014 | El sistema DEBE detectar cambios básicos de esquema y reflejarlos en el catálogo. | Media | Un cambio de columna/tipo se marca como actualización. |
+
+> **Nota de implementación (Fase 3b, 2026-08-15)**: RF-010 se implementó solo para
+> PostgreSQL. MySQL queda diferido de forma explícita — requiere una dependencia async
+> nueva y su propia infraestructura de test con una instancia real (no mocks, ver
+> `.claude/rules/testing.md`) — hasta que haya necesidad concreta de soportarlo. El
+> requisito en sí no cambia (sigue pidiendo ambos motores); ver el detalle de la decisión
+> en `docs/architecture.md` sección 8.1 y `docs/security/threat-model.md`.
 
 ### 3.3 Agente de análisis
 
@@ -183,7 +190,7 @@ Usuario -> React -> FastAPI -> Agent Orchestrator
 | RNF-020 | Los servicios DEBEN poder iniciarse reproduciblemente mediante Docker Compose. | Alta | Un desarrollador nuevo puede levantar el stack siguiendo README. |
 | RNF-021 | El backend DEBE tener cobertura automatizada significativa sobre componentes críticos. | Alta | Auth, SQL validator, agent tools y API crítica tienen pruebas. |
 | RNF-022 | El sistema DEBE exponer health checks de liveness y readiness. | Alta | Los endpoints reflejan estado real de dependencias críticas. |
-| RNF-023 | Las versiones de API DEBEN ser explícitas, por ejemplo /api/v1. | Media | Cambios incompatibles incrementan versión o crean nueva ruta. |
+| RNF-023 | La API NO versiona la URL (`/api/...`, sin `/v1`) mientras no exista un consumidor externo real — el contrato evoluciona en el mismo path vía commits, no vía rutas paralelas. | Media | Un cambio incompatible se documenta como decisión consciente (ver `docs/architecture.md`); versionado explícito por URL se introduce recién cuando haya un consumidor externo real que lo necesite. |
 
 ### 4.4 UX
 
@@ -234,7 +241,7 @@ CI/CD: GitHub Actions
 
 ### 5.2 Backend
 
-- FastAPI con endpoints versionados `/api/v1`.
+- FastAPI con endpoints bajo `/api` (sin versión en la URL — ver RNF-023).
 - Pydantic v2 para validación de contratos.
 - SQLAlchemy 2.x + Alembic para persistencia de la aplicación.
 - Separación clara entre ORM de la plataforma y SQL generado por IA.
@@ -282,25 +289,25 @@ La capa de IA debe usar un runtime de agentes tipado. La selección entre Pydant
 
 | Método | Ruta | Propósito |
 |---|---|---|
-| POST | /api/v1/auth/login | Autenticación |
-| POST | /api/v1/organizations | Crear organización |
-| GET | /api/v1/datasets | Listar datasets accesibles |
-| POST | /api/v1/data-sources | Registrar fuente |
-| POST | /api/v1/datasets/import | Importar CSV/Excel |
-| GET | /api/v1/datasets/{id}/schema | Consultar esquema |
-| POST | /api/v1/analyses | Crear análisis |
-| GET | /api/v1/analyses/{id} | Consultar análisis |
-| POST | /api/v1/analyses/{id}/cancel | Cancelar análisis |
-| GET | /api/v1/analyses/{id}/events | Stream SSE de eventos |
-| GET | /api/v1/analyses/{id}/artifacts | Listar artefactos |
-| GET | /api/v1/audit-events | Consultar auditoría |
+| POST | /api/auth/login | Autenticación |
+| POST | /api/organizations | Crear organización |
+| GET | /api/datasets | Listar datasets accesibles |
+| POST | /api/data-sources | Registrar fuente |
+| POST | /api/datasets/import | Importar CSV/Excel |
+| GET | /api/datasets/{id}/schema | Consultar esquema |
+| POST | /api/analyses | Crear análisis |
+| GET | /api/analyses/{id} | Consultar análisis |
+| POST | /api/analyses/{id}/cancel | Cancelar análisis |
+| GET | /api/analyses/{id}/events | Stream SSE de eventos |
+| GET | /api/analyses/{id}/artifacts | Listar artefactos |
+| GET | /api/audit-events | Consultar auditoría |
 | GET | /health/live | Liveness |
 | GET | /health/ready | Readiness |
 
 ### 7.1 Contrato de creación de análisis
 
 ```
-POST /api/v1/analyses
+POST /api/analyses
 {
   "dataset_id": "...",
   "question": "¿Por qué bajaron las ventas este mes?",
