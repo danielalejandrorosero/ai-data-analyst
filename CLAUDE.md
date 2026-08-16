@@ -69,6 +69,12 @@ consume la API y el stream. Detalle completo: `docs/architecture.md`.
 - RBAC + aislamiento por tenant en toda operación protegida.
 - Todo tool call del agente queda auditado y trazado (trace_id).
 
+## Cierre de fases
+Ninguna fase del roadmap (SRS sección 13) se da por terminada sin antes correr la skill
+`phase-dod-check`, que empieza armando una tabla explícita de cada RF/RNF/CU de esa fase
+(hecho / diferido y ya acordado / faltante) — no alcanza con que los tests pasen. Si algo
+queda afuera sin haberlo comunicado antes, se avisa ahí mismo, no se calla.
+
 ## Restricciones de seguridad
 Ver `.claude/rules/security.md` y `docs/security/threat-model.md`. Nunca desactivar SQL
 validation, rate limits o RBAC "para probar más rápido".
