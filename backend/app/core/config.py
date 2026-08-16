@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # por si solas, porque cada consulta individual puede ser perfectamente
     # valida.
     agent_max_queries_per_run: int = 5
+    # RF-041: mismo motivo que agent_max_queries_per_run, pero para
+    # artifacts de tipo grafico (create_chart) - acota cuantas filas
+    # analysis_artifacts puede generar un unico analysis.
+    agent_max_charts_per_run: int = 5
 
     # Limites de importacion de datasets (RNF-014, RF-011).
     import_max_file_size_mb: int = 20

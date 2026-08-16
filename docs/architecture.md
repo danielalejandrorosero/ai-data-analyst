@@ -213,6 +213,45 @@ mejora de hardening, no como dependencia del MVP.
   solo sobre datasets importados (Fase 2/3a). Ejecutar SQL del agente contra una fuente
   externa registrada acá es trabajo pendiente, no incluido en este alcance.
 
+## 8.3 Análisis y visualización (RF-040 a RF-043, Fase 5)
+
+- Dos tools nuevas del agente, ambas registradas con `sequential=True` (mismo motivo que
+  `execute_readonly_sql` — evita que tool calls paralelas del modelo rompan un presupuesto
+  compartido):
+  - `run_analysis` (RF-040): post-procesa con Polars el resultado de la última operación
+    exitosa (group_by/agg/sort/limit) — no ejecuta SQL nuevo. Funciones de agregación
+    restringidas a un allowlist (`sum`/`mean`/`min`/`max`/`count`), nunca `eval`/`exec` de
+    código del modelo. Comparte presupuesto (`AGENT_MAX_QUERIES_PER_RUN`) con
+    `execute_readonly_sql` — un post-proceso Polars sigue siendo trabajo que un LLM en loop
+    podría repetir sin límite si no contara para el mismo tope.
+  - `create_chart` (RF-041): genera una especificación de gráfico (tipo, ejes, datos) — no
+    una imagen — persistida en `analysis_artifacts`, con su propio tope
+    (`AGENT_MAX_CHARTS_PER_RUN`).
+- **`AgentDeps.results` vs `AgentDeps.last_full_result`** (`domain/agent/deps.py`): lo que se
+  persiste en `Analysis.result_json` está acotado a 100 filas por operación
+  (`_EVIDENCE_ROW_CAP`, para no dejar una columna JSONB gigante — `.claude/rules/database.md`).
+  Encontrado en revisión de seguridad: `run_analysis`/`create_chart` inicialmente leían de
+  esa misma muestra acotada, así que una agregación sobre una consulta de, por ejemplo, 3000
+  filas calculaba sobre las primeras 100 — un resultado con apariencia correcta pero
+  matemáticamente equivocado, sin ningún indicio de ser parcial. Se corrigió separando un
+  buffer de trabajo efímero (`last_full_result`, hasta `max_rows`, nunca persistido tal cual)
+  del que ambas tools leen, del array de evidencia persistida (acotado, para
+  `Analysis.result_json`). `create_chart` marca `spec_json["data_truncated"]` explícitamente
+  cuando el gráfico es una muestra del resultado completo.
+- RF-042 (trazabilidad): `analysis_artifacts.source_sql` referencia la consulta que originó
+  el gráfico — `GET /analyses/{id}/artifacts`. La tabla no tiene `organization_id` propio
+  (mismo patrón que `agent_runs`/`tool_calls` — ver excepción documentada en
+  `.claude/rules/database.md`), el aislamiento de tenant ocurre una sola vez al resolver el
+  `Analysis` padre en el router.
+- RF-043 (export): `GET /analyses/{id}/export?format=csv|json&query_index=N` sirve una de las
+  evidencias de `result_json` (la última por defecto) como archivo descargable. Mismo
+  chequeo de membership que el resto de los endpoints de detalle.
+- **Bug real encontrado probando contra Docker con datos reales**: `SUM()`/`AVG()` sobre una
+  columna entera devuelve `numeric` en Postgres (para evitar overflow), que asyncpg decodifica
+  como `Decimal` — `json.dumps` no lo serializa. Se normaliza en el único punto donde las
+  filas salen de Postgres (`domain/agent/execution.py::_json_safe`, también cubre columnas
+  Date/DateTime), para que nada río abajo tenga que repetir el chequeo.
+
 ## 9. Observabilidad
 
 OpenTelemetry instrumenta `backend/` y `workers/`; las métricas se exponen para Prometheus y

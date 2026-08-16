@@ -1,3 +1,4 @@
+import json
 import time
 
 import pytest
@@ -31,3 +32,24 @@ class TestStatementTimeout:
         assert result.rows == [[1]]
         assert result.row_count == 1
         assert result.truncated is False
+
+
+class TestJsonSafeValueConversion:
+    async def test_sum_aggregation_returns_json_serializable_float_not_decimal(self):
+        """Regresion real: SUM()/AVG() sobre una columna entera devuelve
+        `numeric` en Postgres (para evitar overflow), que asyncpg decodifica
+        como Decimal - json.dumps no lo serializa. Encontrado probando
+        Fase 5 en vivo contra Docker con una agregacion real (rompia
+        execute_readonly_sql con un TypeError sin manejar, dejando el
+        analysis en FAILED con mensaje generico)."""
+        result = await execute_readonly_query(
+            "SELECT SUM(x) AS total FROM (VALUES (1), (2), (3)) AS t(x)", max_rows=10
+        )
+        assert result.rows == [[6.0]]
+        json.dumps(result.rows)  # no debe lanzar TypeError
+
+    async def test_date_column_is_serialized_as_isoformat_string(self):
+        result = await execute_readonly_query("SELECT DATE '2026-01-15' AS d", max_rows=10)
+
+        assert result.rows == [["2026-01-15"]]
+        json.dumps(result.rows)

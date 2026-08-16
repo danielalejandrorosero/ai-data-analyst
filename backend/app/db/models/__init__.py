@@ -1,5 +1,6 @@
 from app.db.models.agent_run import AgentRun, AgentRunStatus
 from app.db.models.analysis import Analysis, AnalysisStatus
+from app.db.models.analysis_artifact import AnalysisArtifact, ArtifactType
 from app.db.models.audit_event import AuditEvent
 from app.db.models.data_source import DataSource
 from app.db.models.dataset import Dataset
@@ -12,7 +13,9 @@ __all__ = [
     "AgentRun",
     "AgentRunStatus",
     "Analysis",
+    "AnalysisArtifact",
     "AnalysisStatus",
+    "ArtifactType",
     "AuditEvent",
     "DataSource",
     "Dataset",

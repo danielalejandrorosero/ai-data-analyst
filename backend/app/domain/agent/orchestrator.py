@@ -14,26 +14,37 @@ from app.db.models.analysis import Analysis, AnalysisStatus
 from app.db.models.dataset import Dataset
 from app.domain.agent.deps import AgentDeps
 from app.domain.agent.events import publish_event
-from app.domain.agent.tools import execute_readonly_sql, inspect_schema
+from app.domain.agent.tools import create_chart, execute_readonly_sql, inspect_schema
+from app.domain.agent.tools import run_analysis as run_analysis_tool
 from app.domain.datasets.schemas import ColumnSchema
 
 logger = logging.getLogger("app.agent")
 
 SYSTEM_PROMPT = """
-Sos un analista de datos. Tenes acceso a un unico dataset a traves de dos
-herramientas: inspect_schema (columnas y tipos disponibles) y
-execute_readonly_sql (una consulta SELECT de solo lectura sobre ese
-dataset). Llama siempre primero a inspect_schema antes de escribir SQL.
+Sos un analista de datos. Tenes acceso a un unico dataset a traves de
+estas herramientas:
+- inspect_schema: columnas y tipos disponibles. Llamala siempre primero,
+  antes de escribir SQL.
+- execute_readonly_sql: una consulta SELECT de solo lectura sobre el
+  dataset.
+- run_analysis: post-procesa (agrupa/agrega/ordena) el resultado de la
+  ULTIMA consulta exitosa con Polars, para pivots o rankings que una
+  unica consulta SQL no resuelve comodo. No reemplaza a execute_readonly_sql,
+  la complementa.
+- create_chart: genera la especificacion de un grafico (no una imagen) a
+  partir del ultimo resultado, si la pregunta se beneficia de una
+  visualizacion ademas de la respuesta en texto.
+
 Para preguntas simples, una sola consulta alcanza. Para preguntas
 complejas que requieran investigar mas de un angulo (comparar periodos,
 formular una hipotesis y verificarla, etc.) podes llamar a
-execute_readonly_sql varias veces - hay un limite de consultas por
-analisis, asi que priorizá las que mas aportan a la respuesta en vez de
-tantear al azar. No inventes ni intentes acceder a ninguna otra tabla. Si
-una consulta es rechazada, corregila segun el motivo del error en vez de
-repetirla igual. Respondé la pregunta del usuario en espanol, de forma
-breve, basandote solo en los resultados que efectivamente obtuviste - no
-inventes datos.
+execute_readonly_sql o run_analysis varias veces - hay un limite de
+consultas por analisis, asi que priorizá las que mas aportan a la
+respuesta en vez de tantear al azar. No inventes ni intentes acceder a
+ninguna otra tabla. Si una consulta es rechazada, corregila segun el
+motivo del error en vez de repetirla igual. Respondé la pregunta del
+usuario en espanol, de forma breve, basandote solo en los resultados que
+efectivamente obtuviste - no inventes datos.
 """.strip()
 
 
@@ -52,19 +63,28 @@ def build_agent(model: OpenAIChatModel | None = None) -> Agent[AgentDeps, str]:
     """Separado de run_analysis para que los tests puedan inyectar un
     modelo de prueba (TestModel/FunctionModel) sin tocar config real.
 
-    execute_readonly_sql va con sequential=True: el default de pydantic-ai
-    (y de la API de OpenAI-compatible) permite que el modelo emita varias
-    tool calls del mismo turno y se ejecuten en paralelo - eso rompería el
-    presupuesto de RF-022 (AGENT_MAX_QUERIES_PER_RUN) si no fuera porque
-    tools.py ya lo reserva de forma atomica y sincronica. Esto es una
-    segunda capa de defensa, no la unica.
+    execute_readonly_sql, run_analysis y create_chart van con
+    sequential=True: el default de pydantic-ai (y de la API de OpenAI-
+    compatible) permite que el modelo emita varias tool calls del mismo
+    turno y se ejecuten en paralelo - eso rompería los presupuestos
+    compartidos (query_count para RF-022/RF-040, chart_count para RF-041)
+    si no fuera porque tools.py ya los reserva de forma atomica y
+    sincronica, antes de cualquier `await`. Esto es una segunda capa de
+    defensa, no la unica - las tres tools tienen el mismo tratamiento por
+    consistencia, aunque solo execute_readonly_sql/run_analysis comparten
+    presupuesto entre si.
     """
     return Agent(
         model or _build_model(),
         deps_type=AgentDeps,
         output_type=str,
         system_prompt=SYSTEM_PROMPT,
-        tools=[inspect_schema, Tool(execute_readonly_sql, sequential=True)],
+        tools=[
+            inspect_schema,
+            Tool(execute_readonly_sql, sequential=True),
+            Tool(run_analysis_tool, name="run_analysis", sequential=True),
+            Tool(create_chart, sequential=True),
+        ],
     )
 
 
@@ -114,6 +134,7 @@ async def run_analysis(
         max_joins=settings.agent_sql_max_joins,
         max_subqueries=settings.agent_sql_max_subqueries,
         max_queries_per_run=settings.agent_max_queries_per_run,
+        max_charts_per_run=settings.agent_max_charts_per_run,
     )
 
     await _set_status(db, analysis, AnalysisStatus.TOOL_RUNNING)

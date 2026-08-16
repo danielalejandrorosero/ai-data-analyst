@@ -40,6 +40,20 @@ class AnalysisCancelOut(BaseModel):
     status: str
 
 
+class AnalysisArtifactOut(BaseModel):
+    """RF-041/RF-042. `spec` es la especificacion de grafico que consume un
+    frontend con Recharts - nunca una imagen. `source_sql` es la
+    trazabilidad hacia la consulta que produjo los datos graficados."""
+
+    id: uuid.UUID
+    type: str
+    spec: dict[str, Any]
+    source_sql: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class AnalysisOut(BaseModel):
     id: uuid.UUID
     dataset_id: uuid.UUID

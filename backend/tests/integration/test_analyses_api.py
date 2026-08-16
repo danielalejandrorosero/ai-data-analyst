@@ -70,6 +70,34 @@ async def _set_status_directly(db_session, analysis_id: str, status: AnalysisSta
     await db_session.commit()
 
 
+async def _set_result_directly(db_session, analysis_id: str, result_json: list[dict]) -> None:
+    """Simula la evidencia que run_analysis_job hubiera dejado (ver
+    _stub_arq - el worker nunca corre de verdad en estos tests)."""
+    analysis = (
+        await db_session.execute(select(Analysis).where(Analysis.id == uuid.UUID(analysis_id)))
+    ).scalar_one()
+    analysis.status = AnalysisStatus.COMPLETED
+    analysis.result_json = result_json
+    await db_session.commit()
+
+
+async def _add_artifact_directly(db_session, analysis_id: str, **overrides) -> str:
+    from app.db.models.analysis_artifact import AnalysisArtifact, ArtifactType
+
+    artifact = AnalysisArtifact(
+        analysis_id=uuid.UUID(analysis_id),
+        type=overrides.get("type", ArtifactType.CHART),
+        spec_json=overrides.get(
+            "spec_json",
+            {"chart_type": "bar", "title": "x", "x_field": "a", "y_field": "b", "data": []},
+        ),
+        source_sql=overrides.get("source_sql", "SELECT * FROM datasets.ds_x"),
+    )
+    db_session.add(artifact)
+    await db_session.commit()
+    return str(artifact.id)
+
+
 class TestCreateAnalysis:
     async def test_analyst_can_create_analysis(self, client, unique_email):
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
@@ -502,6 +530,271 @@ class TestStreamAnalysisEvents:
 
         response = await client.get(
             f"/api/analyses/{analysis_id}/events",
+            headers={"Authorization": f"Bearer {outsider_token}"},
+        )
+        assert response.status_code == 404
+
+
+class TestListArtifacts:
+    async def test_lists_artifacts_created_for_the_analysis(
+        self, client, unique_email, db_session
+    ):
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        artifact_id = await _add_artifact_directly(
+            db_session,
+            analysis_id,
+            spec_json={
+                "chart_type": "bar",
+                "title": "t",
+                "x_field": "a",
+                "y_field": "b",
+                "data": [],
+            },
+            source_sql="SELECT a, b FROM datasets.ds_x",
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/artifacts",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 1
+        assert body[0]["id"] == artifact_id
+        assert body[0]["type"] == "CHART"
+        assert body[0]["spec"]["chart_type"] == "bar"
+        assert body[0]["source_sql"] == "SELECT a, b FROM datasets.ds_x"
+
+    async def test_viewer_can_list_artifacts(self, client, unique_email, db_session):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _add_artifact_directly(db_session, analysis_id)
+
+        viewer_response = await client.post(
+            "/api/auth/register",
+            json={
+                "email": f"viewer-artifacts-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Viewer Artifacts Org",
+            },
+        )
+        viewer_user_id = viewer_response.json()["user"]["id"]
+        viewer_token = viewer_response.json()["access_token"]
+        db_session.add(Membership(user_id=viewer_user_id, organization_id=org_id, role=Role.VIEWER))
+        await db_session.commit()
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/artifacts",
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    async def test_listing_artifacts_without_membership_returns_404(self, client, unique_email):
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+
+        outsider_response = await client.post(
+            "/api/auth/register",
+            json={
+                "email": f"outsider-artifacts-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Outsider Artifacts Org",
+            },
+        )
+        outsider_token = outsider_response.json()["access_token"]
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/artifacts",
+            headers={"Authorization": f"Bearer {outsider_token}"},
+        )
+        assert response.status_code == 404
+
+
+class TestExportAnalysisResult:
+    async def test_export_json_returns_last_query_by_default(
+        self, client, unique_email, db_session
+    ):
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [
+                {"sql": "SELECT 1", "columns": ["a"], "rows": [[1]], "row_count": 1},
+                {
+                    "sql": "SELECT 2",
+                    "columns": ["a", "b"],
+                    "rows": [[1, 2], [3, 4]],
+                    "row_count": 2,
+                },
+            ],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "json"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/json")
+        assert response.json() == [{"a": 1, "b": 2}, {"a": 3, "b": 4}]
+
+    async def test_export_csv_content(self, client, unique_email, db_session):
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [{"sql": "SELECT 1", "columns": ["a", "b"], "rows": [[1, 2]], "row_count": 1}],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "csv"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/csv")
+        assert "attachment" in response.headers["content-disposition"]
+        assert response.text.strip().splitlines() == ["a,b", "1,2"]
+
+    async def test_export_specific_query_index(self, client, unique_email, db_session):
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [
+                {"sql": "SELECT 1", "columns": ["a"], "rows": [[1]], "row_count": 1},
+                {"sql": "SELECT 2", "columns": ["a"], "rows": [[2]], "row_count": 1},
+            ],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "json", "query_index": 0},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.json() == [{"a": 1}]
+
+    async def test_export_invalid_format_returns_422(self, client, unique_email, db_session):
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [{"sql": "SELECT 1", "columns": ["a"], "rows": [[1]], "row_count": 1}],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "xml"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 422
+
+    async def test_export_without_results_returns_404(self, client, unique_email):
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 404
+
+    async def test_export_out_of_range_query_index_returns_404(
+        self, client, unique_email, db_session
+    ):
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [{"sql": "SELECT 1", "columns": ["a"], "rows": [[1]], "row_count": 1}],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"query_index": 5},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 404
+
+    async def test_export_without_membership_returns_404(self, client, unique_email, db_session):
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [{"sql": "SELECT 1", "columns": ["a"], "rows": [[1]], "row_count": 1}],
+        )
+
+        outsider_response = await client.post(
+            "/api/auth/register",
+            json={
+                "email": f"outsider-export-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Outsider Export Org",
+            },
+        )
+        outsider_token = outsider_response.json()["access_token"]
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
             headers={"Authorization": f"Bearer {outsider_token}"},
         )
         assert response.status_code == 404

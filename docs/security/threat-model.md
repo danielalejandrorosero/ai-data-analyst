@@ -22,6 +22,7 @@ fuera del prompt, en código determinístico revisable y testeable.
 | DoS por multi-consulta sin límite (RF-022, Fase 4) | Un LLM en loop ejecuta consultas válidas indefinidamente, cada una pasando el resto de los controles por separado | `AGENT_MAX_QUERIES_PER_RUN` (default 5) — `execute_readonly_sql` rechaza pasado el tope, sin colgar el análisis |
 | Carga maliciosa de archivo | Parser comprometido/consumo excesivo | Size limits, MIME validation, sandboxing |
 | SSRF vía registro de conexión externa (RF-010) | El backend se usa como proxy para sondear la red interna del despliegue (otros contenedores, endpoints de metadata de nube) | Resolución DNS + rechazo de IPs privadas/loopback/link-local/reservadas antes de conectar, mensaje de error único (sin importar la causa), auditoría de intentos fallidos |
+| Ejecución de atributo arbitrario vía `run_analysis` (RF-040, Fase 5) | El modelo pasa una función de agregación no prevista a `getattr(pl.col(col), func)()` | Allowlist `_AGG_FUNCS` (sum/mean/min/max/count) validada antes de cualquier `getattr` — sin excepciones, probado explícitamente pasando `"__class__"` (atributo real que existiría sin el chequeo) |
 
 ## Controles obligatorios (SRS sección 8)
 
@@ -129,3 +130,13 @@ evaluaron y se decidió no resolverlas todavía):
   esto del todo requeriría un canal de auditoría no tenant-scoped (log de seguridad a nivel
   de plataforma, separado del audit log por organización), que no existe todavía — se
   revisita si se agrega observabilidad centralizada en Fase 7.
+- **Contenido de dataset sin sanitizar embebido en `analysis_artifacts.spec_json`** (RF-041,
+  Fase 5): `create_chart` copia valores de fila crudos del dataset (más un `title` generado
+  por el LLM) en `spec_json`, servido tal cual por `GET /analyses/{id}/artifacts`. El backend
+  no escapa nada — es responsabilidad del frontend (Recharts, todavía sin scaffolding)
+  asegurarse de no renderizar esos valores como HTML/SVG sin escapar. Si un dataset importado
+  tiene una celda con contenido tipo `<img src=x onerror=...>` en una columna usada como
+  eje/tooltip, y el frontend no escapa, es un vector de stored XSS acotado al tenant (los
+  datos ya están aislados por `_get_visible_analysis`). No es un hallazgo del backend hoy —
+  queda anotado para auditar cuando exista el frontend (Fase 6+), no asumir que el renderer
+  es seguro por defecto.

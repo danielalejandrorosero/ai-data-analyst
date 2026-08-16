@@ -2,7 +2,7 @@ import json
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
@@ -11,12 +11,15 @@ from app.core.arq_pool import get_arq_pool
 from app.core.redis_client import redis_client
 from app.db.models.agent_run import AgentRun
 from app.db.models.analysis import TERMINAL_ANALYSIS_STATUSES, Analysis
+from app.db.models.analysis_artifact import AnalysisArtifact
 from app.db.models.membership import Role
 from app.db.models.tool_call import ToolCall
 from app.db.models.user import User
 from app.db.session import get_db
 from app.domain.agent.cancellation import CancellationError, cancel_analysis_job
+from app.domain.agent.export import ExportError, rows_to_csv, rows_to_json, select_result
 from app.domain.agent.schemas import (
+    AnalysisArtifactOut,
     AnalysisCancelOut,
     AnalysisCreateRequest,
     AnalysisListItemOut,
@@ -28,6 +31,26 @@ from app.domain.auth.dependencies import get_current_user
 from app.domain.datasets import service as datasets_service
 
 router = APIRouter(prefix="/analyses", tags=["analyses"])
+
+
+async def _get_visible_analysis(
+    db: AsyncSession, *, analysis_id: uuid.UUID, current_user: User
+) -> Analysis:
+    """Lookup + chequeo de membership compartido por todos los endpoints de
+    detalle de un analysis (GET/{id}, cancel, events, artifacts, export) -
+    404 uniforme tanto si no existe como si es de otro tenant (RF-003)."""
+    result = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
+    analysis = result.scalar_one_or_none()
+    if analysis is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis no encontrado")
+
+    membership = await auth_service.get_membership(
+        db, user_id=current_user.id, organization_id=analysis.organization_id
+    )
+    if membership is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis no encontrado")
+
+    return analysis
 
 
 async def _build_analysis_out(db: AsyncSession, analysis: Analysis) -> AnalysisOut:
@@ -128,17 +151,7 @@ async def get_analysis(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> AnalysisOut:
-    result = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
-    analysis = result.scalar_one_or_none()
-    if analysis is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis no encontrado")
-
-    membership = await auth_service.get_membership(
-        db, user_id=current_user.id, organization_id=analysis.organization_id
-    )
-    if membership is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis no encontrado")
-
+    analysis = await _get_visible_analysis(db, analysis_id=analysis_id, current_user=current_user)
     return await _build_analysis_out(db, analysis)
 
 
@@ -152,16 +165,10 @@ async def cancel_analysis(
     domain/agent/cancellation.py - el router solo valida y traduce a
     HTTP). No espera una confirmacion definitiva del worker - el cliente
     ve el estado real via GET /analyses/{id} o el stream de eventos."""
-    result = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
-    analysis = result.scalar_one_or_none()
-    if analysis is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis no encontrado")
-
+    analysis = await _get_visible_analysis(db, analysis_id=analysis_id, current_user=current_user)
     membership = await auth_service.get_membership(
         db, user_id=current_user.id, organization_id=analysis.organization_id
     )
-    if membership is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis no encontrado")
     if membership.role not in (Role.OWNER, Role.ADMIN, Role.ANALYST):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No autorizado")
 
@@ -191,17 +198,7 @@ async def stream_analysis_events(
     (Postgres via GET /analyses/{id} sigue siendo la fuente de verdad - ver
     domain/agent/events.py). Si el analysis ya esta en un estado terminal
     al conectarse, se manda ese unico evento y se cierra."""
-    result = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
-    analysis = result.scalar_one_or_none()
-    if analysis is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis no encontrado")
-
-    membership = await auth_service.get_membership(
-        db, user_id=current_user.id, organization_id=analysis.organization_id
-    )
-    if membership is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis no encontrado")
-
+    analysis = await _get_visible_analysis(db, analysis_id=analysis_id, current_user=current_user)
     initial_status = analysis.status
 
     async def _events():
@@ -224,3 +221,69 @@ async def stream_analysis_events(
                     break
 
     return EventSourceResponse(_events())
+
+
+@router.get("/{analysis_id}/artifacts", response_model=list[AnalysisArtifactOut])
+async def list_artifacts(
+    analysis_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[AnalysisArtifactOut]:
+    """RF-041/RF-042: graficos generados por create_chart durante la
+    corrida, cada uno con la consulta origen para trazabilidad."""
+    analysis = await _get_visible_analysis(db, analysis_id=analysis_id, current_user=current_user)
+
+    result = await db.execute(
+        select(AnalysisArtifact)
+        .where(AnalysisArtifact.analysis_id == analysis.id)
+        .order_by(AnalysisArtifact.created_at)
+    )
+    return [
+        AnalysisArtifactOut(
+            id=artifact.id,
+            type=artifact.type,
+            spec=artifact.spec_json,
+            source_sql=artifact.source_sql,
+            created_at=artifact.created_at,
+        )
+        for artifact in result.scalars()
+    ]
+
+
+@router.get("/{analysis_id}/export")
+async def export_analysis_result(
+    analysis_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    export_format: Annotated[str, Query(alias="format")] = "json",
+    query_index: Annotated[int | None, Query()] = None,
+) -> Response:
+    """RF-043: exporta a CSV o JSON el resultado de una de las consultas del
+    analysis (la ultima por defecto - ver query_index). Mismo chequeo de
+    membership que el resto de los endpoints de detalle, nunca se
+    salta la autorizacion por tratarse de una descarga."""
+    if export_format not in ("csv", "json"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="format debe ser 'csv' o 'json'",
+        )
+
+    analysis = await _get_visible_analysis(db, analysis_id=analysis_id, current_user=current_user)
+
+    try:
+        selected = select_result(analysis.result_json, query_index=query_index)
+    except ExportError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    columns, rows = selected["columns"], selected["rows"]
+    filename = f"analysis-{analysis.id}.{export_format}"
+    if export_format == "csv":
+        content, media_type = rows_to_csv(columns, rows), "text/csv"
+    else:
+        content, media_type = rows_to_json(columns, rows), "application/json"
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

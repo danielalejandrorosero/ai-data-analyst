@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal
 from functools import lru_cache
 from typing import Any
 
@@ -10,6 +12,22 @@ from app.core.config import settings
 
 class SqlExecutionError(Exception):
     """Error de Postgres al ejecutar SQL ya validado (permisos, timeout, etc.)."""
+
+
+def _json_safe(value: Any) -> Any:
+    """SUM()/AVG() sobre una columna entera devuelven `numeric` en Postgres
+    (para evitar overflow) - asyncpg lo decodifica como Decimal, que
+    json.dumps no serializa. Fechas (columnas Date/DateTime del dataset)
+    tampoco. Se normaliza aca, en el unico punto donde las filas salen de
+    Postgres, para que todo lo que consume esto rio abajo (la respuesta al
+    LLM, Analysis.result_json, Polars en run_analysis, create_chart,
+    export CSV/JSON) reciba tipos ya serializables sin tener que repetir
+    este chequeo en cada lugar."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    return value
 
 
 @dataclass
@@ -42,7 +60,7 @@ async def execute_readonly_query(sql: str, *, max_rows: int) -> SqlExecutionResu
             await conn.execute(text(f"SET statement_timeout = {timeout_ms}"))
             result = await conn.execute(text(sql))
             columns = list(result.keys())
-            all_rows = [list(row) for row in result.fetchall()]
+            all_rows = [[_json_safe(v) for v in row] for row in result.fetchall()]
     except Exception as exc:  # noqa: BLE001 - cualquier error de Postgres es un fallo de ejecucion
         raise SqlExecutionError(str(exc)) from exc
 

@@ -7,7 +7,7 @@
 
 Fase 0 (base del repositorio) + Fase 1 (auth + tenants) + Fase 2 (datasets) + Fase 3
 (SQL Analyst MVP + conexiones PostgreSQL externas) + Fase 4 (agent runtime: multi-paso,
-cancelación, progreso en vivo) completas.
+cancelación, progreso en vivo) + Fase 5 (análisis con Polars, gráficos, export) completas.
 
 - Auth real por credenciales + JWT (registro, login, roles OWNER/ADMIN/ANALYST/VIEWER,
   aislamiento por `organization_id`, audit log de éxitos y fallos): `POST /api/auth/register`,
@@ -31,9 +31,14 @@ cancelación, progreso en vivo) completas.
   cifra la credencial (Fernet). MySQL queda diferido explícitamente (ver
   `docs/architecture.md` sección 8.1) — el agente todavía no ejecuta consultas contra estas
   conexiones, solo quedan registradas.
+- Análisis con Polars y gráficos (RF-040 a RF-043): el agente puede post-procesar
+  (agrupar/agregar/ordenar) el resultado de una consulta con `run_analysis`, y generar
+  especificaciones de gráfico (no imágenes) con `create_chart`, consumibles por un frontend
+  con Recharts. `GET /api/analyses/{id}/artifacts` para los gráficos generados,
+  `GET /api/analyses/{id}/export?format=csv|json` para descargar un resultado.
 
-Visualización y RAG documental son Fase 5 en adelante. El frontend todavía no tiene
-scaffolding (backend-first, ver `docs/adr/`).
+RAG documental es Fase 6 en adelante. El frontend todavía no tiene scaffolding
+(backend-first, ver `docs/adr/`).
 
 **Importante**: desde Fase 4, `POST /api/analyses` responde `202` con `QUEUED` de
 inmediato — el `worker` (ARQ) tiene que estar corriendo para que el análisis avance en
