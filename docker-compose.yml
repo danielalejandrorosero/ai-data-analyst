@@ -59,9 +59,27 @@ services:
       redis:
         condition: service_healthy
 
+  # pgAdmin: herramienta de desarrollo local para inspeccionar la DB a mano
+  # (no es parte del roadmap del SRS, es tooling de conveniencia - no se
+  # expone en ningun despliegue real, solo para uso local).
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@local.dev}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-changeme_pgladmin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # frontend, prometheus, grafana y reverse-proxy se agregan cuando exista
   # su scaffolding correspondiente (frontend/ hoy no tiene package.json;
   # prometheus/grafana son Fase 7 del roadmap, docs/SRS.md seccion 13).
 
 volumes:
   postgres_data:
+  pgadmin_data:
