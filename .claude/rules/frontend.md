@@ -9,6 +9,10 @@ paths:
 Convenciones de código para `frontend/` (React + TypeScript + Vite), gestionado con
 **pnpm**. Complementa `frontend/CLAUDE.md`, no lo repite.
 
+Recordatorio: toda UI nueva o modificada pasa por `frontend-design`/`ui-ux-pro-max`
+(dirección) e `impeccable` (pulido/auditoría) — ver la sección "Herramientas de diseño
+obligatorias" de `frontend/CLAUDE.md`, no son opcionales.
+
 - Toda llamada a la API pasa por un hook de TanStack Query dedicado en `src/api/` — no
   hacer `fetch`/`axios` sueltos dentro de componentes.
 - Zustand solo se introduce cuando exista un estado local/global concreto que TanStack
