@@ -1,18 +1,23 @@
+import json
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sse_starlette.sse import EventSourceResponse
 
+from app.core.arq_pool import get_arq_pool
+from app.core.redis_client import redis_client
 from app.db.models.agent_run import AgentRun
-from app.db.models.analysis import Analysis
+from app.db.models.analysis import TERMINAL_ANALYSIS_STATUSES, Analysis
 from app.db.models.membership import Role
 from app.db.models.tool_call import ToolCall
 from app.db.models.user import User
 from app.db.session import get_db
-from app.domain.agent.orchestrator import run_analysis
+from app.domain.agent.cancellation import CancellationError, cancel_analysis_job
 from app.domain.agent.schemas import (
+    AnalysisCancelOut,
     AnalysisCreateRequest,
     AnalysisListItemOut,
     AnalysisOut,
@@ -55,12 +60,16 @@ async def _build_analysis_out(db: AsyncSession, analysis: Analysis) -> AnalysisO
     )
 
 
-@router.post("", response_model=AnalysisOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=AnalysisOut, status_code=status.HTTP_202_ACCEPTED)
 async def create_analysis(
     payload: AnalysisCreateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> AnalysisOut:
+    """RF-020/RF-025 (Fase 4): encola el analisis como job de workers/ (ARQ)
+    y responde de inmediato en QUEUED - no espera a que termine. El cliente
+    seguiga el progreso via GET /analyses/{id} (polling) o
+    GET /analyses/{id}/events (SSE)."""
     dataset = await datasets_service.get_dataset_by_id(db, payload.dataset_id)
     if dataset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset no encontrado")
@@ -82,7 +91,10 @@ async def create_analysis(
     db.add(analysis)
     await db.flush()
 
-    await run_analysis(db, analysis=analysis, dataset=dataset)
+    pool = await get_arq_pool()
+    job = await pool.enqueue_job("run_analysis_job", str(analysis.id))
+    analysis.arq_job_id = job.job_id
+    await db.commit()
 
     return await _build_analysis_out(db, analysis)
 
@@ -128,3 +140,87 @@ async def get_analysis(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis no encontrado")
 
     return await _build_analysis_out(db, analysis)
+
+
+@router.post("/{analysis_id}/cancel", response_model=AnalysisCancelOut)
+async def cancel_analysis(
+    analysis_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> AnalysisCancelOut:
+    """RF-025: pide a ARQ que aborte el job en curso (logica real en
+    domain/agent/cancellation.py - el router solo valida y traduce a
+    HTTP). No espera una confirmacion definitiva del worker - el cliente
+    ve el estado real via GET /analyses/{id} o el stream de eventos."""
+    result = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
+    analysis = result.scalar_one_or_none()
+    if analysis is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis no encontrado")
+
+    membership = await auth_service.get_membership(
+        db, user_id=current_user.id, organization_id=analysis.organization_id
+    )
+    if membership is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis no encontrado")
+    if membership.role not in (Role.OWNER, Role.ADMIN, Role.ANALYST):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No autorizado")
+
+    if analysis.status in TERMINAL_ANALYSIS_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"El analisis ya esta en un estado terminal ({analysis.status.value})",
+        )
+
+    pool = await get_arq_pool()
+    try:
+        await cancel_analysis_job(db, analysis=analysis, pool=pool)
+    except CancellationError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    return AnalysisCancelOut(id=analysis.id, status="cancel_requested")
+
+
+@router.get("/{analysis_id}/events")
+async def stream_analysis_events(
+    analysis_id: uuid.UUID,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> EventSourceResponse:
+    """CU-06 (inspeccionar ejecucion): progreso en vivo por SSE, best-effort
+    (Postgres via GET /analyses/{id} sigue siendo la fuente de verdad - ver
+    domain/agent/events.py). Si el analysis ya esta en un estado terminal
+    al conectarse, se manda ese unico evento y se cierra."""
+    result = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
+    analysis = result.scalar_one_or_none()
+    if analysis is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis no encontrado")
+
+    membership = await auth_service.get_membership(
+        db, user_id=current_user.id, organization_id=analysis.organization_id
+    )
+    if membership is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisis no encontrado")
+
+    initial_status = analysis.status
+
+    async def _events():
+        yield {"event": "status", "data": json.dumps({"status": initial_status.value})}
+        if initial_status in TERMINAL_ANALYSIS_STATUSES:
+            return
+
+        async with redis_client.pubsub() as pubsub:
+            await pubsub.subscribe(f"analysis:{analysis_id}:events")
+            async for message in pubsub.listen():
+                if await request.is_disconnected():
+                    break
+                if message["type"] != "message":
+                    continue
+                payload = json.loads(message["data"])
+                yield {"event": payload.get("type", "message"), "data": message["data"]}
+                if payload.get("type") == "status" and payload.get("status") in {
+                    s.value for s in TERMINAL_ANALYSIS_STATUSES
+                }:
+                    break
+
+    return EventSourceResponse(_events())

@@ -25,13 +25,30 @@ class AnalysisStatus(enum.StrEnum):
     TIMED_OUT = "TIMED_OUT"
 
 
-class Analysis(Base):
-    """Solicitud y estado de un analisis (RF-020 a RF-024).
+TERMINAL_ANALYSIS_STATUSES = frozenset(
+    {
+        AnalysisStatus.COMPLETED,
+        AnalysisStatus.FAILED,
+        AnalysisStatus.CANCELLED,
+        AnalysisStatus.TIMED_OUT,
+    }
+)
 
-    `result_json` guarda la evidencia de la ULTIMA consulta SQL exitosa
-    (sql/columns/rows/truncated) para trazabilidad visualizacion->evidencia
-    (RF-042) - no el historial completo de cada tool call, eso vive en
-    tool_calls via agent_runs.
+
+class Analysis(Base):
+    """Solicitud y estado de un analisis (RF-020 a RF-025).
+
+    `result_json` guarda un ARRAY con la evidencia de CADA consulta SQL
+    exitosa de la corrida (sql/columns/rows/truncated cada una) - RF-022
+    permite al agente ejecutar mas de una consulta para una pregunta
+    compleja, asi que la evidencia final puede venir de varias. No es el
+    historial completo de cada tool call (incluye los fallidos/rechazados),
+    eso vive en tool_calls via agent_runs.
+
+    `arq_job_id` referencia el job en la cola de workers/ (RF-025,
+    Fase 4) - lo usa POST /analyses/{id}/cancel para pedirle a ARQ que
+    aborte el job en curso. Nulo mientras el analysis corre sincronico
+    (tests que llaman run_analysis directamente sin pasar por la API).
     """
 
     __tablename__ = "analyses"
@@ -54,8 +71,9 @@ class Analysis(Base):
         default=AnalysisStatus.QUEUED,
     )
     answer: Mapped[str | None] = mapped_column(Text, nullable=True)
-    result_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    result_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    arq_job_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

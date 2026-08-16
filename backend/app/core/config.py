@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     # anidadas, no joins entre tablas distintas (eso ya esta bloqueado).
     agent_sql_max_joins: int = 2
     agent_sql_max_subqueries: int = 3
+    # RF-022: el agente puede ejecutar mas de una consulta por pregunta
+    # compleja - sin un tope, un LLM en loop es un vector de costo/DoS
+    # nuevo que las otras defensas (timeout/max_rows/complejidad) no cubren
+    # por si solas, porque cada consulta individual puede ser perfectamente
+    # valida.
+    agent_max_queries_per_run: int = 5
 
     # Limites de importacion de datasets (RNF-014, RF-011).
     import_max_file_size_mb: int = 20

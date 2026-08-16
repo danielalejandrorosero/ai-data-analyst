@@ -3,7 +3,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, Tool
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,7 @@ from app.db.models.agent_run import AgentRun, AgentRunStatus
 from app.db.models.analysis import Analysis, AnalysisStatus
 from app.db.models.dataset import Dataset
 from app.domain.agent.deps import AgentDeps
+from app.domain.agent.events import publish_event
 from app.domain.agent.tools import execute_readonly_sql, inspect_schema
 from app.domain.datasets.schemas import ColumnSchema
 
@@ -21,12 +22,18 @@ logger = logging.getLogger("app.agent")
 SYSTEM_PROMPT = """
 Sos un analista de datos. Tenes acceso a un unico dataset a traves de dos
 herramientas: inspect_schema (columnas y tipos disponibles) y
-execute_readonly_sql (UNA consulta SELECT de solo lectura sobre ese
+execute_readonly_sql (una consulta SELECT de solo lectura sobre ese
 dataset). Llama siempre primero a inspect_schema antes de escribir SQL.
-No inventes ni intentes acceder a ninguna otra tabla. Si una consulta es
-rechazada, corregila segun el motivo del error en vez de repetirla igual.
-Respondé la pregunta del usuario en espanol, de forma breve, basandote
-solo en los resultados que efectivamente obtuviste - no inventes datos.
+Para preguntas simples, una sola consulta alcanza. Para preguntas
+complejas que requieran investigar mas de un angulo (comparar periodos,
+formular una hipotesis y verificarla, etc.) podes llamar a
+execute_readonly_sql varias veces - hay un limite de consultas por
+analisis, asi que priorizá las que mas aportan a la respuesta en vez de
+tantear al azar. No inventes ni intentes acceder a ninguna otra tabla. Si
+una consulta es rechazada, corregila segun el motivo del error en vez de
+repetirla igual. Respondé la pregunta del usuario en espanol, de forma
+breve, basandote solo en los resultados que efectivamente obtuviste - no
+inventes datos.
 """.strip()
 
 
@@ -43,14 +50,28 @@ def _build_model() -> OpenAIChatModel:
 
 def build_agent(model: OpenAIChatModel | None = None) -> Agent[AgentDeps, str]:
     """Separado de run_analysis para que los tests puedan inyectar un
-    modelo de prueba (TestModel/FunctionModel) sin tocar config real."""
+    modelo de prueba (TestModel/FunctionModel) sin tocar config real.
+
+    execute_readonly_sql va con sequential=True: el default de pydantic-ai
+    (y de la API de OpenAI-compatible) permite que el modelo emita varias
+    tool calls del mismo turno y se ejecuten en paralelo - eso rompería el
+    presupuesto de RF-022 (AGENT_MAX_QUERIES_PER_RUN) si no fuera porque
+    tools.py ya lo reserva de forma atomica y sincronica. Esto es una
+    segunda capa de defensa, no la unica.
+    """
     return Agent(
         model or _build_model(),
         deps_type=AgentDeps,
         output_type=str,
         system_prompt=SYSTEM_PROMPT,
-        tools=[inspect_schema, execute_readonly_sql],
+        tools=[inspect_schema, Tool(execute_readonly_sql, sequential=True)],
     )
+
+
+async def _set_status(db: AsyncSession, analysis: Analysis, status: AnalysisStatus) -> None:
+    analysis.status = status
+    await db.flush()
+    await publish_event(analysis.id, {"type": "status", "status": status.value})
 
 
 async def run_analysis(
@@ -60,15 +81,16 @@ async def run_analysis(
     dataset: Dataset,
     agent: Agent[AgentDeps, str] | None = None,
 ) -> None:
-    """Orquesta pregunta -> schema -> SQL -> resultado (RF-020 a RF-024).
+    """Orquesta pregunta -> schema -> SQL(es) -> resultado (RF-020 a RF-025).
 
-    Corre sincronicamente dentro del request (misma decision que datasets
-    import en Fase 2 - ver docs/architecture.md seccion 12). Deja el
-    Analysis en un estado terminal (COMPLETED/FAILED/TIMED_OUT) siempre,
-    nunca colgado en un estado intermedio (RF-025).
+    Fase 4: corre dentro de un job de workers/ (ARQ), no sincronico en el
+    request (ver workers/tasks/analysis.py) - esto permite cancelacion
+    real (RF-025, via arq Job.abort()) y progreso en vivo por SSE
+    (publish_event). Deja el Analysis en un estado terminal (COMPLETED/
+    FAILED/TIMED_OUT/CANCELLED) siempre, nunca colgado en un estado
+    intermedio.
     """
-    analysis.status = AnalysisStatus.PLANNING
-    await db.flush()
+    await _set_status(db, analysis, AnalysisStatus.PLANNING)
 
     trace_id = uuid.uuid4().hex
     agent_run = AgentRun(
@@ -83,6 +105,7 @@ async def run_analysis(
     columns = [ColumnSchema(**column) for column in dataset.schema_json]
     deps = AgentDeps(
         db=db,
+        analysis_id=analysis.id,
         agent_run_id=agent_run.id,
         dataset_id=dataset.id,
         table_name=f"datasets.{dataset.table_name}",
@@ -90,19 +113,17 @@ async def run_analysis(
         max_rows=settings.agent_sql_max_rows,
         max_joins=settings.agent_sql_max_joins,
         max_subqueries=settings.agent_sql_max_subqueries,
+        max_queries_per_run=settings.agent_max_queries_per_run,
     )
 
-    analysis.status = AnalysisStatus.TOOL_RUNNING
-    await db.flush()
+    await _set_status(db, analysis, AnalysisStatus.TOOL_RUNNING)
 
     logger.info(
-        "agent_run.start",
-        extra={
-            "trace_id": trace_id,
-            "analysis_id": str(analysis.id),
-            "dataset_id": str(dataset.id),
-            "model": agent_run.model,
-        },
+        "agent_run.start trace_id=%s analysis_id=%s dataset_id=%s model=%s",
+        trace_id,
+        analysis.id,
+        dataset.id,
+        agent_run.model,
     )
 
     overall_timeout = settings.agent_sql_timeout_seconds * 4
@@ -121,12 +142,25 @@ async def run_analysis(
         agent_run.finished_at = datetime.now(UTC)
         analysis.status = AnalysisStatus.TIMED_OUT
         analysis.error = "La ejecucion supero el tiempo maximo permitido"
-        logger.warning(
-            "agent_run.timed_out",
-            extra={"trace_id": trace_id, "analysis_id": str(analysis.id)},
-        )
+        logger.warning("agent_run.timed_out trace_id=%s analysis_id=%s", trace_id, analysis.id)
         await db.commit()
+        await publish_event(analysis.id, {"type": "status", "status": analysis.status.value})
         return
+    except asyncio.CancelledError:
+        # RF-025: llega aca cuando arq Job.abort() cancela el asyncio task
+        # que corre este job (workers/tasks/analysis.py). A diferencia de
+        # TimeoutError/Exception, CancelledError es un BaseException - no
+        # lo captura el "except Exception" de abajo, y hay que re-lanzarlo
+        # despues de dejar el estado consistente para que ARQ lo registre
+        # como abortado, no como completado.
+        agent_run.status = AgentRunStatus.CANCELLED
+        agent_run.finished_at = datetime.now(UTC)
+        analysis.status = AnalysisStatus.CANCELLED
+        analysis.error = "Analisis cancelado por el usuario"
+        logger.warning("agent_run.cancelled trace_id=%s analysis_id=%s", trace_id, analysis.id)
+        await db.commit()
+        await publish_event(analysis.id, {"type": "status", "status": analysis.status.value})
+        raise
     except Exception as exc:  # noqa: BLE001 - cualquier fallo del agente termina el analysis, no lo cuelga
         agent_run.status = AgentRunStatus.FAILED
         agent_run.finished_at = datetime.now(UTC)
@@ -140,20 +174,22 @@ async def run_analysis(
             f"Ocurrio un error inesperado al ejecutar el analisis (trace_id={trace_id})"
         )
         logger.error(
-            "agent_run.failed",
-            extra={"trace_id": trace_id, "analysis_id": str(analysis.id), "error": str(exc)},
+            "agent_run.failed trace_id=%s analysis_id=%s error=%r",
+            trace_id,
+            analysis.id,
+            exc,
+            exc_info=True,
         )
         await db.commit()
+        await publish_event(analysis.id, {"type": "status", "status": analysis.status.value})
         return
 
-    analysis.status = AnalysisStatus.GENERATING_RESPONSE
+    await _set_status(db, analysis, AnalysisStatus.GENERATING_RESPONSE)
     analysis.answer = result.output
-    analysis.result_json = deps.last_result
+    analysis.result_json = deps.results or None
     analysis.status = AnalysisStatus.COMPLETED
     agent_run.status = AgentRunStatus.COMPLETED
     agent_run.finished_at = datetime.now(UTC)
-    logger.info(
-        "agent_run.completed",
-        extra={"trace_id": trace_id, "analysis_id": str(analysis.id)},
-    )
+    logger.info("agent_run.completed trace_id=%s analysis_id=%s", trace_id, analysis.id)
     await db.commit()
+    await publish_event(analysis.id, {"type": "status", "status": analysis.status.value})

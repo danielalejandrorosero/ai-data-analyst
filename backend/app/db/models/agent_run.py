@@ -13,6 +13,7 @@ class AgentRunStatus(enum.StrEnum):
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
 class AgentRun(Base):

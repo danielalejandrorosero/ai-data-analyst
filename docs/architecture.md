@@ -132,9 +132,56 @@ mejora de hardening, no como dependencia del MVP.
   `execute_readonly_sql`, cada tool call queda en `tool_calls` con duración, hash del input
   y resumen del resultado (RF-023, RF-033). Proveedor de LLM: Kimi (Moonshot AI) vía API
   compatible con OpenAI — ver `docs/adr/0009-llm-provider.md`.
-- `POST /api/v1/analyses` corre el agente **síncronamente dentro del request** (misma
-  decisión que datasets en Fase 2, sección 12) — el estado `QUEUED`/`PLANNING`/
-  `TOOL_RUNNING`/etc. se refleja en la respuesta final, no hay streaming SSE todavía.
+- `POST /api/v1/analyses` (Fase 4) encola el análisis como job real de `workers/` (ARQ) y
+  responde `202` de inmediato en `QUEUED` — ya no corre sincrónico dentro del request como
+  en Fase 3a. Nota: `POST /datasets/import` (sección 12) sigue siendo sincrónico — esa
+  decisión no cambió, solo la de `analyses`. El cliente sigue el progreso vía
+  `GET /analyses/{id}` (polling) o `GET /analyses/{id}/events` (SSE real, sección 8.2).
+  **Decisión consciente sobre RNF-023** ("cambio incompatible incrementa versión o crea
+  ruta nueva"): este cambio (`201`+resultado síncrono → `202`+`QUEUED`, y `result` de `dict`
+  a `list[dict]`) es incompatible sobre una ruta ya existente, sin nueva versión. Se decide
+  así porque no hay ningún consumidor real todavía (`frontend/` no tiene scaffolding) — el
+  costo de romper compatibilidad es cero hoy. Si esto se repite después de que exista un
+  cliente real, hay que versionar de verdad.
+
+### 8.2 Multi-paso, cancelación y progreso en vivo (RF-022/RF-025, Fase 4)
+
+- El agente puede ejecutar más de una consulta por pregunta compleja (RF-022) —
+  `AgentDeps.results` acumula la evidencia de cada consulta exitosa (no se pisan entre sí),
+  con un tope configurable (`AGENT_MAX_QUERIES_PER_RUN`, default 5) para no convertir esto
+  en un vector de costo/DoS nuevo — un LLM en loop sin ese límite podría generar consultas
+  válidas indefinidamente, cada una pasando el resto de los controles por separado. El
+  chequeo del tope es sincrónico (sin ningún `await` antes de reservar el cupo en
+  `AgentDeps.query_count`) — pydantic-ai puede ejecutar varias tool calls del mismo turno en
+  paralelo por default (comportamiento estándar de function-calling, no requiere prompt
+  injection), así que un chequeo basado en `len(results)` (que solo crece después del
+  round-trip a Postgres) sería una condición de carrera real, no solo teórica — confirmado
+  con un test que emite 20 tool calls en un único turno. `execute_readonly_sql` además se
+  registra con `sequential=True` en pydantic-ai como segunda capa, no la única.
+- Las filas guardadas como evidencia en `Analysis.result_json` se acotan a 100 por consulta
+  (`_EVIDENCE_ROW_CAP` en `tools.py`), no las hasta 5000 que la consulta puede leer — RF-022
+  permite hasta 5 consultas por análisis, así que sin este tope la columna JSONB podría
+  crecer a ~25.000 filas en una sola fila de `analyses`, violando
+  `.claude/rules/database.md` ("nunca como columna gigante dentro de una fila"). El acceso
+  al resultado completo/exportable es RF-042 (`analysis_artifacts`, Fase 5) — todavía no
+  implementado; esto es evidencia suficiente para sustentar la respuesta, no un export.
+- `POST /api/v1/analyses/{id}/cancel` (RF-025) usa `arq.jobs.Job.abort()`. Dos detalles
+  encontrados solo probando contra Docker real, no obvios por la documentación de arq:
+  - El `WorkerSettings` necesita `allow_abort_jobs = True` — sin eso, `Job.abort()` no
+    interrumpe un job que ya está corriendo, solo lo saca de la cola si todavía no arrancó.
+  - Si arq aborta el job ANTES de que el worker lo arranque ("aborted before start"),
+    `run_analysis()` nunca llega a ejecutarse — nada dentro de `domain/agent/orchestrator.py`
+    deja el `Analysis` en `CANCELLED`. El endpoint de cancelación mismo fuerza esa
+    transición cuando `job.abort()` confirma que abortó y el análisis sigue en un estado no
+    terminal — sin esto, quedaba colgado en `QUEUED` para siempre.
+  - Cuando el job SÍ estaba corriendo, la cancelación llega como `asyncio.CancelledError`
+    dentro de `run_analysis` (una `BaseException`, no `Exception` — no la captura el except
+    genérico de errores inesperados) — se deja el `Analysis`/`AgentRun` en `CANCELLED` y se
+    re-lanza, para que arq registre el job como abortado.
+- Progreso en vivo: `domain/agent/events.py::publish_event` publica a Redis pub/sub
+  (`analysis:{id}:events`) en cada transición de estado y cada tool call; el endpoint SSE
+  se suscribe y retransmite. Es best-effort — si Redis falla, no tumba el análisis; la
+  fuente de verdad sigue siendo Postgres vía `GET /analyses/{id}`.
 
 ## 8.1 Conexiones externas (RF-010, Fase 3b)
 

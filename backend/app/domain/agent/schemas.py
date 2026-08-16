@@ -35,13 +35,18 @@ class AnalysisListItemOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AnalysisCancelOut(BaseModel):
+    id: uuid.UUID
+    status: str
+
+
 class AnalysisOut(BaseModel):
     id: uuid.UUID
     dataset_id: uuid.UUID
     question: str
     status: AnalysisStatus
     answer: str | None
-    result: dict[str, Any] | None
+    result: list[dict[str, Any]] | None
     error: str | None
     created_at: datetime
     tool_calls: list[ToolCallOut] = Field(default_factory=list)

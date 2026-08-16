@@ -6,7 +6,8 @@
 ## Estado del proyecto
 
 Fase 0 (base del repositorio) + Fase 1 (auth + tenants) + Fase 2 (datasets) + Fase 3
-(SQL Analyst MVP + conexiones PostgreSQL externas) completas.
+(SQL Analyst MVP + conexiones PostgreSQL externas) + Fase 4 (agent runtime: multi-paso,
+cancelación, progreso en vivo) completas.
 
 - Auth real por credenciales + JWT (registro, login, roles OWNER/ADMIN/ANALYST/VIEWER,
   aislamiento por `organization_id`, audit log de éxitos y fallos): `POST /api/v1/auth/register`,
@@ -16,12 +17,15 @@ Fase 0 (base del repositorio) + Fase 1 (auth + tenants) + Fase 2 (datasets) + Fa
   archivo, valida tamaño/filas, y carga los datos en una tabla física de PostgreSQL (schema
   `datasets`) — no queda como archivo suelto. `GET /api/v1/datasets`,
   `GET /api/v1/datasets/{id}/schema` para el catálogo.
-- Primer agente + SQL seguro real: `POST /api/v1/analyses` — el agente (PydanticAI + Kimi)
-  inspecciona el esquema y ejecuta SQL de solo lectura contra el dataset, validado por un
-  parser real (`sqlglot`) y por un rol Postgres separado sin permisos de escritura ni acceso
-  a las tablas de la plataforma. `GET /api/v1/analyses/{id}` para consultar el resultado y
-  el trace de tool calls, `GET /api/v1/analyses` para el historial de análisis de la
-  organización.
+- Agente + SQL seguro real, ahora asíncrono (RF-020 a RF-025): `POST /api/v1/analyses`
+  encola el análisis como job de `workers/` (ARQ) y responde `202` de inmediato en
+  `QUEUED` — el agente (PydanticAI + Kimi) inspecciona el esquema y puede ejecutar más de
+  una consulta de solo lectura por pregunta compleja (hasta un límite configurable),
+  validada por un parser real (`sqlglot`) y por un rol Postgres separado sin permisos de
+  escritura ni acceso a las tablas de la plataforma. `GET /api/v1/analyses/{id}` para
+  consultar el resultado y el trace de tool calls, `GET /api/v1/analyses` para el historial,
+  `GET /api/v1/analyses/{id}/events` para progreso en vivo por SSE, y
+  `POST /api/v1/analyses/{id}/cancel` para abortar una ejecución en curso.
 - Conexiones externas PostgreSQL (RF-010): `POST /api/v1/datasets/connections` (rol
   OWNER/ADMIN) prueba la conexión con un `SELECT 1` controlado antes de guardar nada, y
   cifra la credencial (Fernet). MySQL queda diferido explícitamente (ver
@@ -30,6 +34,11 @@ Fase 0 (base del repositorio) + Fase 1 (auth + tenants) + Fase 2 (datasets) + Fa
 
 Visualización y RAG documental son Fase 5 en adelante. El frontend todavía no tiene
 scaffolding (backend-first, ver `docs/adr/`).
+
+**Importante**: desde Fase 4, `POST /api/v1/analyses` responde `202` con `QUEUED` de
+inmediato — el `worker` (ARQ) tiene que estar corriendo para que el análisis avance en
+absoluto, si no se queda en `QUEUED` para siempre. `docker compose up -d` ya lo incluye,
+pero si corrés el backend nativo sin Docker acordate de levantarlo aparte (ver más abajo).
 Ver el roadmap completo en [`docs/SRS.md`](docs/SRS.md#13-roadmap-de-implementación).
 
 ## Problema
@@ -102,19 +111,23 @@ Para conectarlo a la DB del proyecto: nuevo servidor, host `postgres` (nombre de
 en la red de Docker, no `localhost`), puerto `5432`, usuario/password de `POSTGRES_USER`/
 `POSTGRES_PASSWORD`.
 
-Todo funciona sin `LLM_API_KEY` **excepto** `POST /api/v1/analyses`, que sin eso responde
-`201` con `status: "FAILED"` y un mensaje claro (no rompe el resto de la app). Para que el
-agente funcione de verdad, completá en `.env`: `LLM_PROVIDER`, `LLM_API_KEY`,
-`LLM_BASE_URL` y `LLM_MODEL` con los datos de tu cuenta de Kimi (Moonshot AI) — ver
-[`docs/adr/0009-llm-provider.md`](docs/adr/0009-llm-provider.md).
+Todo funciona sin `LLM_API_KEY` **excepto** procesar el análisis en sí: `POST /api/v1/analyses`
+igual responde `202`/`QUEUED` (eso no depende del LLM), pero el `worker` lo deja en
+`FAILED` con un mensaje claro apenas lo levanta (ver `GET /api/v1/analyses/{id}` o los logs
+de `worker` — no rompe el resto de la app). Para que el agente funcione de verdad, completá
+en `.env`: `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_BASE_URL` y `LLM_MODEL` con los datos de tu
+cuenta de Kimi (Moonshot AI) — ver [`docs/adr/0009-llm-provider.md`](docs/adr/0009-llm-provider.md).
 
 Sin Docker, corriendo el backend nativo (requiere `uv`, y Postgres/Redis disponibles por
-tu cuenta o vía `docker compose up postgres redis`):
+tu cuenta o vía `docker compose up postgres redis`) — necesitás **dos** procesos, la API
+y el worker, o los análisis nunca avanzan de `QUEUED`:
 
 ```bash
 cp .env.example .env
 uv sync
 uv run --package backend uvicorn app.main:app --reload
+# en otra terminal:
+uv run --package workers arq tasks.worker_settings.WorkerSettings
 ```
 
 Verificación rápida: `curl http://localhost:8000/health/live` debe responder

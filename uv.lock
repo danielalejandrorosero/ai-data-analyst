@@ -214,6 +214,7 @@ source = { editable = "backend" }
 dependencies = [
     { name = "alembic" },
     { name = "argon2-cffi" },
+    { name = "arq" },
     { name = "asyncpg" },
     { name = "fastapi" },
     { name = "openpyxl" },
@@ -226,6 +227,7 @@ dependencies = [
     { name = "redis" },
     { name = "sqlalchemy" },
     { name = "sqlglot" },
+    { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -241,6 +243,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.19.1" },
     { name = "argon2-cffi", specifier = ">=25.1.0" },
+    { name = "arq", specifier = ">=0.25.0" },
     { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "openpyxl", specifier = ">=3.1.5" },
@@ -253,6 +256,7 @@ requires-dist = [
     { name = "redis", specifier = ">=8.1.0" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "sqlglot", specifier = ">=30.17.0" },
+    { name = "sse-starlette", specifier = ">=3.4.8" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.3" },
 ]
 

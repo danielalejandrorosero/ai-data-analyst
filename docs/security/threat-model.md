@@ -19,6 +19,7 @@ fuera del prompt, en código determinístico revisable y testeable.
 | Cross-tenant access | Filtración de datos | Tenant scoping obligatorio en backend y DB |
 | Secret leakage | Credenciales expuestas | Secret manager/ref + redacción de logs |
 | DoS por consultas pesadas | Worker/DB saturados | Timeout, límites, concurrency control |
+| DoS por multi-consulta sin límite (RF-022, Fase 4) | Un LLM en loop ejecuta consultas válidas indefinidamente, cada una pasando el resto de los controles por separado | `AGENT_MAX_QUERIES_PER_RUN` (default 5) — `execute_readonly_sql` rechaza pasado el tope, sin colgar el análisis |
 | Carga maliciosa de archivo | Parser comprometido/consumo excesivo | Size limits, MIME validation, sandboxing |
 | SSRF vía registro de conexión externa (RF-010) | El backend se usa como proxy para sondear la red interna del despliegue (otros contenedores, endpoints de metadata de nube) | Resolución DNS + rechazo de IPs privadas/loopback/link-local/reservadas antes de conectar, mensaje de error único (sin importar la causa), auditoría de intentos fallidos |
 
@@ -95,6 +96,10 @@ evaluaron y se decidió no resolverlas todavía):
   para el canal del agente (Fase 3+) — pero su ausencia hoy también deja `/auth/login` sin
   protección contra fuerza bruta más allá del costo intrínseco de Argon2id. Evaluar agregar
   rate limiting básico de auth antes de Fase 8 si el proyecto se expone públicamente antes.
+  **Fase 4 agrava esto**: `GET /analyses/{id}/events` (SSE) abre una conexión persistente +
+  una suscripción Redis por request, sin límite de conexiones concurrentes por usuario — un
+  recurso más caro por request que los endpoints REST normales. Mismo gap ya conocido, pero
+  ahora con mayor impacto potencial si se expone públicamente sin resolverlo antes.
 - **SSRF: queda un canal de timing residual, no de contenido**. El guard (RF-010,
   `domain/datasets/connections.py::_assert_host_is_not_internal`) rechaza rangos privados/
   loopback/link-local/reservados con el mismo mensaje genérico que cualquier otro fallo, así
