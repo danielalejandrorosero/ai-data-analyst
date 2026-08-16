@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { LoginPage } from './features/auth/LoginPage'
 import { RegisterPage } from './features/auth/RegisterPage'
 import { DatasetsPage } from './features/datasets/DatasetsPage'
+import { AnalysisPage } from './features/analysis/AnalysisPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
 export default function App() {
@@ -14,6 +15,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <DatasetsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/analisis"
+        element={
+          <ProtectedRoute>
+            <AnalysisPage />
           </ProtectedRoute>
         }
       />
