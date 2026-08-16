@@ -29,6 +29,12 @@ class Settings(BaseSettings):
 
     agent_sql_timeout_seconds: int = 30
     agent_sql_max_rows: int = 5000
+    # Limites de complejidad de la consulta generada por el agente (RF-032) -
+    # ademas de timeout/max_rows. El validador ya restringe a una unica tabla
+    # fisica (mas CTEs), asi que estos limites acotan self-joins y subqueries
+    # anidadas, no joins entre tablas distintas (eso ya esta bloqueado).
+    agent_sql_max_joins: int = 2
+    agent_sql_max_subqueries: int = 3
 
     # Limites de importacion de datasets (RNF-014, RF-011).
     import_max_file_size_mb: int = 20

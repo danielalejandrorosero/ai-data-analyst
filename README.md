@@ -5,8 +5,8 @@
 
 ## Estado del proyecto
 
-Fase 0 (base del repositorio) + Fase 1 (auth + tenants) + Fase 2 (datasets) + Fase 3a
-(SQL Analyst MVP) completas.
+Fase 0 (base del repositorio) + Fase 1 (auth + tenants) + Fase 2 (datasets) + Fase 3
+(SQL Analyst MVP + conexiones PostgreSQL externas) completas.
 
 - Auth real por credenciales + JWT (registro, login, roles OWNER/ADMIN/ANALYST/VIEWER,
   aislamiento por `organization_id`, audit log de éxitos y fallos): `POST /api/v1/auth/register`,
@@ -20,10 +20,16 @@ Fase 0 (base del repositorio) + Fase 1 (auth + tenants) + Fase 2 (datasets) + Fa
   inspecciona el esquema y ejecuta SQL de solo lectura contra el dataset, validado por un
   parser real (`sqlglot`) y por un rol Postgres separado sin permisos de escritura ni acceso
   a las tablas de la plataforma. `GET /api/v1/analyses/{id}` para consultar el resultado y
-  el trace de tool calls.
+  el trace de tool calls, `GET /api/v1/analyses` para el historial de análisis de la
+  organización.
+- Conexiones externas PostgreSQL (RF-010): `POST /api/v1/datasets/connections` (rol
+  OWNER/ADMIN) prueba la conexión con un `SELECT 1` controlado antes de guardar nada, y
+  cifra la credencial (Fernet). MySQL queda diferido explícitamente (ver
+  `docs/architecture.md` sección 8.1) — el agente todavía no ejecuta consultas contra estas
+  conexiones, solo quedan registradas.
 
-RF-010 (conectar una fuente Postgres/MySQL externa), visualización y RAG documental son
-Fase 3b en adelante. El frontend todavía no tiene scaffolding (backend-first, ver `docs/adr/`).
+Visualización y RAG documental son Fase 5 en adelante. El frontend todavía no tiene
+scaffolding (backend-first, ver `docs/adr/`).
 Ver el roadmap completo en [`docs/SRS.md`](docs/SRS.md#13-roadmap-de-implementación).
 
 ## Problema
@@ -79,7 +85,22 @@ Con Docker (recomendado; validado end-to-end — `api`/`postgres`/`redis`/`worke
 ```bash
 cp .env.example .env
 docker compose up -d
+DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/ai_data_analyst" \
+  uv run --package backend alembic -c backend/alembic.ini upgrade head
 ```
+
+El `docker compose up -d` no corre migraciones solo — un volumen recién creado queda con
+`/health/ready` en `200` (solo chequea conectividad) pero **sin ninguna tabla**, así que el
+paso de `alembic upgrade head` de arriba es obligatorio la primera vez (o después de borrar
+el volumen de Postgres). El rol `agent_readonly` sí se crea automáticamente en un volumen
+nuevo, vía `infrastructure/postgres/init/`.
+
+pgAdmin queda disponible en `http://localhost:5050` (login: `PGADMIN_DEFAULT_EMAIL`/
+`PGADMIN_DEFAULT_PASSWORD` de tu `.env`, por defecto `admin@local.dev` / ver
+`.env.example`) — es solo una herramienta de desarrollo local, no forma parte del roadmap.
+Para conectarlo a la DB del proyecto: nuevo servidor, host `postgres` (nombre del servicio
+en la red de Docker, no `localhost`), puerto `5432`, usuario/password de `POSTGRES_USER`/
+`POSTGRES_PASSWORD`.
 
 Todo funciona sin `LLM_API_KEY` **excepto** `POST /api/v1/analyses`, que sin eso responde
 `201` con `status: "FAILED"` y un mensaje claro (no rompe el resto de la app). Para que el
@@ -110,7 +131,7 @@ la raíz). Comandos útiles desde la raíz del repo:
 
 ```bash
 uv sync                                              # instala todo el workspace
-uv run --package backend pytest                      # tests de backend
+uv run --package backend pytest backend/tests         # tests de backend
 uv run --package backend ruff check backend/app       # lint
 uv run --package backend alembic revision --autogenerate -m "mensaje"
 uv run --package backend alembic upgrade head

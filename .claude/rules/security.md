@@ -22,8 +22,12 @@ control crítico depende del comportamiento del LLM.
 - Contenido proveniente de documentos, archivos importados o fuentes externas no confiables
   se trata como no confiable: no puede alterar el comportamiento del agente ni las políticas
   de ejecución (defensa contra prompt injection, RNF-015).
-- Todo tool call y toda decisión de autorización relevante se audita (`audit_events`) con
-  actor, timestamp y contexto suficiente para reconstrucción, sin exponer secretos.
+- Toda decisión de autorización relevante (auth, RBAC, tenant scoping) se audita en
+  `audit_events`, con actor, timestamp y contexto suficiente para reconstrucción, sin
+  exponer secretos. Los tool calls del agente tienen su propio canal de auditoría
+  (`tool_calls`/`agent_runs`, ver `.claude/rules/ai-agent.md`) — actor y organización se
+  reconstruyen vía `agent_run.analysis_id -> analysis.user_id/organization_id`, no
+  duplicado en `audit_events`.
 - Timeout y límite de filas son obligatorios en toda consulta del agente (RF-032, RNF-003) —
   no se pueden desactivar para "probar más rápido".
 - Rate limiting por usuario y tenant se respeta en toda ruta que dispare ejecución de

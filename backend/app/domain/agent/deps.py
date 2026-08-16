@@ -22,4 +22,6 @@ class AgentDeps:
     table_name: str  # calificado por schema, ej. "datasets.ds_abc123"
     columns: list[ColumnSchema]
     max_rows: int
+    max_joins: int = 2
+    max_subqueries: int = 3
     last_result: dict[str, Any] | None = field(default=None)

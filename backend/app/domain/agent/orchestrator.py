@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -14,6 +15,8 @@ from app.db.models.dataset import Dataset
 from app.domain.agent.deps import AgentDeps
 from app.domain.agent.tools import execute_readonly_sql, inspect_schema
 from app.domain.datasets.schemas import ColumnSchema
+
+logger = logging.getLogger("app.agent")
 
 SYSTEM_PROMPT = """
 Sos un analista de datos. Tenes acceso a un unico dataset a traves de dos
@@ -85,10 +88,22 @@ async def run_analysis(
         table_name=f"datasets.{dataset.table_name}",
         columns=columns,
         max_rows=settings.agent_sql_max_rows,
+        max_joins=settings.agent_sql_max_joins,
+        max_subqueries=settings.agent_sql_max_subqueries,
     )
 
     analysis.status = AnalysisStatus.TOOL_RUNNING
     await db.flush()
+
+    logger.info(
+        "agent_run.start",
+        extra={
+            "trace_id": trace_id,
+            "analysis_id": str(analysis.id),
+            "dataset_id": str(dataset.id),
+            "model": agent_run.model,
+        },
+    )
 
     overall_timeout = settings.agent_sql_timeout_seconds * 4
 
@@ -106,13 +121,28 @@ async def run_analysis(
         agent_run.finished_at = datetime.now(UTC)
         analysis.status = AnalysisStatus.TIMED_OUT
         analysis.error = "La ejecucion supero el tiempo maximo permitido"
+        logger.warning(
+            "agent_run.timed_out",
+            extra={"trace_id": trace_id, "analysis_id": str(analysis.id)},
+        )
         await db.commit()
         return
     except Exception as exc:  # noqa: BLE001 - cualquier fallo del agente termina el analysis, no lo cuelga
         agent_run.status = AgentRunStatus.FAILED
         agent_run.finished_at = datetime.now(UTC)
         analysis.status = AnalysisStatus.FAILED
-        analysis.error = str(exc)
+        # GET /analyses/{id} expone `error` a cualquier miembro de la
+        # organizacion (incluido VIEWER), asi que nunca puede ser str(exc)
+        # crudo - errores no anticipados (cliente LLM, driver, etc.) pueden
+        # traer detalles internos (URLs, hosts, fragmentos de config). El
+        # detalle real solo va al log server-side.
+        analysis.error = (
+            f"Ocurrio un error inesperado al ejecutar el analisis (trace_id={trace_id})"
+        )
+        logger.error(
+            "agent_run.failed",
+            extra={"trace_id": trace_id, "analysis_id": str(analysis.id), "error": str(exc)},
+        )
         await db.commit()
         return
 
@@ -122,4 +152,8 @@ async def run_analysis(
     analysis.status = AnalysisStatus.COMPLETED
     agent_run.status = AgentRunStatus.COMPLETED
     agent_run.finished_at = datetime.now(UTC)
+    logger.info(
+        "agent_run.completed",
+        extra={"trace_id": trace_id, "analysis_id": str(analysis.id)},
+    )
     await db.commit()

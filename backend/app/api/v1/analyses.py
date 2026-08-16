@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +12,12 @@ from app.db.models.tool_call import ToolCall
 from app.db.models.user import User
 from app.db.session import get_db
 from app.domain.agent.orchestrator import run_analysis
-from app.domain.agent.schemas import AnalysisCreateRequest, AnalysisOut, ToolCallOut
+from app.domain.agent.schemas import (
+    AnalysisCreateRequest,
+    AnalysisListItemOut,
+    AnalysisOut,
+    ToolCallOut,
+)
 from app.domain.auth import service as auth_service
 from app.domain.auth.dependencies import get_current_user
 from app.domain.datasets import service as datasets_service
@@ -80,6 +85,29 @@ async def create_analysis(
     await run_analysis(db, analysis=analysis, dataset=dataset)
 
     return await _build_analysis_out(db, analysis)
+
+
+@router.get("", response_model=list[AnalysisListItemOut])
+async def list_analyses(
+    organization_id: Annotated[uuid.UUID, Query()],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[AnalysisListItemOut]:
+    """CU-08 (consultar historial). `organization_id` es un parametro que el
+    caller ya conoce explicitamente, asi que el rechazo es 403 (no 404) -
+    mismo criterio que GET /datasets."""
+    membership = await auth_service.get_membership(
+        db, user_id=current_user.id, organization_id=organization_id
+    )
+    if membership is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No autorizado")
+
+    result = await db.execute(
+        select(Analysis)
+        .where(Analysis.organization_id == organization_id)
+        .order_by(Analysis.created_at.desc())
+    )
+    return [AnalysisListItemOut.model_validate(analysis) for analysis in result.scalars()]
 
 
 @router.get("/{analysis_id}", response_model=AnalysisOut)

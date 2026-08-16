@@ -10,6 +10,14 @@ os.environ["SECRET_ENCRYPTION_KEY"] = "test-encryption-key-not-for-production"
 os.environ["AGENT_DATABASE_URL"] = (
     "postgresql+asyncpg://agent_readonly:changeme_agent_readonly@localhost:5432/ai_data_analyst_test"
 )
+# Los tests nunca deben depender de si el .env real del desarrollador tiene
+# una LLM_API_KEY configurada o no - se fuerzan vacias explicitamente para
+# que build_agent() falle de forma deterministica en el path que lo espera
+# (test_missing_llm_config_leaves_analysis_failed_not_500), sin importar el
+# entorno local.
+os.environ["LLM_API_KEY"] = ""
+os.environ["LLM_BASE_URL"] = ""
+os.environ["LLM_MODEL"] = ""
 
 import app.db.models  # noqa: F401 - registra los modelos en Base.metadata
 import pytest

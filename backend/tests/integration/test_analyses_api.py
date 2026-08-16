@@ -186,3 +186,99 @@ class TestGetAnalysis:
             f"/api/v1/analyses/{uuid.uuid4()}", headers={"Authorization": f"Bearer {token}"}
         )
         assert response.status_code == 404
+
+
+class TestListAnalyses:
+    async def test_lists_analyses_of_the_caller_organization_newest_first(
+        self, client, unique_email
+    ):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+
+        first = await client.post(
+            "/api/v1/analyses",
+            json={"dataset_id": dataset_id, "question": "primera"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        second = await client.post(
+            "/api/v1/analyses",
+            json={"dataset_id": dataset_id, "question": "segunda"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        response = await client.get(
+            "/api/v1/analyses",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert [item["id"] for item in body] == [
+            second.json()["id"],
+            first.json()["id"],
+        ]
+        # Version liviana: sin tool_calls ni result completo.
+        assert "tool_calls" not in body[0]
+
+    async def test_viewer_can_list_analyses(self, client, unique_email, db_session):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+        await client.post(
+            "/api/v1/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        viewer_response = await client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": f"viewer-list-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Viewer List Org",
+            },
+        )
+        viewer_user_id = viewer_response.json()["user"]["id"]
+        viewer_token = viewer_response.json()["access_token"]
+        db_session.add(
+            Membership(user_id=viewer_user_id, organization_id=org_id, role=Role.VIEWER)
+        )
+        await db_session.commit()
+
+        response = await client.get(
+            "/api/v1/analyses",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    async def test_listing_analyses_of_another_organization_returns_403(
+        self, client, unique_email
+    ):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+        await client.post(
+            "/api/v1/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        outsider_response = await client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": f"outsider-list-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Outsider List Org",
+            },
+        )
+        outsider_token = outsider_response.json()["access_token"]
+
+        response = await client.get(
+            "/api/v1/analyses",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {outsider_token}"},
+        )
+        assert response.status_code == 403
+
+    async def test_list_analyses_without_token_is_rejected(self, client, unique_email):
+        _token, org_id, _dataset_id = await _register_and_import(client, unique_email)
+
+        response = await client.get("/api/v1/analyses", params={"organization_id": org_id})
+        assert response.status_code == 401

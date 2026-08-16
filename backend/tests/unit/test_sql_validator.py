@@ -134,6 +134,82 @@ class TestRowLimitCapping:
         assert "999999" not in result
 
 
+class TestRecursiveCteBlocked:
+    def test_with_recursive_is_rejected(self):
+        """Una CTE recursiva puede no referenciar ninguna tabla real (su
+        caso base puede ser "SELECT 1"), lo que evadiria tanto la
+        validacion de tabla autorizada como los limites de complejidad."""
+        with pytest.raises(SqlValidationError, match="RECURSIVE"):
+            validate_readonly_select(
+                "WITH RECURSIVE t(n) AS ("
+                "SELECT 1 UNION ALL SELECT n+1 FROM t"
+                ") SELECT COUNT(*) FROM t",
+                allowed_table=ALLOWED,
+                max_rows=1000,
+            )
+
+    def test_non_recursive_cte_is_still_allowed(self):
+        validate_readonly_select(
+            "WITH agg AS (SELECT product, SUM(units) AS total FROM datasets.ds_abc123 "
+            "GROUP BY product) SELECT * FROM agg",
+            allowed_table=ALLOWED,
+            max_rows=1000,
+        )
+
+
+class TestComplexityLimits:
+    def test_joins_within_default_limit_are_allowed(self):
+        validate_readonly_select(
+            "SELECT * FROM datasets.ds_abc123 a "
+            "JOIN datasets.ds_abc123 b ON true "
+            "JOIN datasets.ds_abc123 c ON true",
+            allowed_table=ALLOWED,
+            max_rows=1000,
+        )
+
+    def test_joins_exceeding_default_limit_are_rejected(self):
+        with pytest.raises(SqlValidationError, match="JOIN"):
+            validate_readonly_select(
+                "SELECT * FROM datasets.ds_abc123 a "
+                "JOIN datasets.ds_abc123 b ON true "
+                "JOIN datasets.ds_abc123 c ON true "
+                "JOIN datasets.ds_abc123 d ON true",
+                allowed_table=ALLOWED,
+                max_rows=1000,
+            )
+
+    def test_max_joins_is_configurable(self):
+        with pytest.raises(SqlValidationError, match="JOIN"):
+            validate_readonly_select(
+                "SELECT * FROM datasets.ds_abc123 a JOIN datasets.ds_abc123 b ON true",
+                allowed_table=ALLOWED,
+                max_rows=1000,
+                max_joins=0,
+            )
+
+    def test_subqueries_exceeding_default_limit_are_rejected(self):
+        with pytest.raises(SqlValidationError, match="subquery"):
+            validate_readonly_select(
+                "SELECT * FROM datasets.ds_abc123 WHERE units > "
+                "(SELECT AVG(units) FROM datasets.ds_abc123) AND product IN "
+                "(SELECT product FROM datasets.ds_abc123) AND product NOT IN "
+                "(SELECT product FROM datasets.ds_abc123 WHERE units < 0) AND product != "
+                "(SELECT product FROM datasets.ds_abc123 LIMIT 1)",
+                allowed_table=ALLOWED,
+                max_rows=1000,
+            )
+
+    def test_max_subqueries_is_configurable(self):
+        with pytest.raises(SqlValidationError, match="subquery"):
+            validate_readonly_select(
+                "SELECT * FROM datasets.ds_abc123 WHERE units > "
+                "(SELECT AVG(units) FROM datasets.ds_abc123)",
+                allowed_table=ALLOWED,
+                max_rows=1000,
+                max_subqueries=0,
+            )
+
+
 class TestEmptyOrInvalidInput:
     def test_empty_string_is_rejected(self):
         with pytest.raises(SqlValidationError, match="vacia"):

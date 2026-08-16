@@ -20,6 +20,7 @@ fuera del prompt, en código determinístico revisable y testeable.
 | Secret leakage | Credenciales expuestas | Secret manager/ref + redacción de logs |
 | DoS por consultas pesadas | Worker/DB saturados | Timeout, límites, concurrency control |
 | Carga maliciosa de archivo | Parser comprometido/consumo excesivo | Size limits, MIME validation, sandboxing |
+| SSRF vía registro de conexión externa (RF-010) | El backend se usa como proxy para sondear la red interna del despliegue (otros contenedores, endpoints de metadata de nube) | Resolución DNS + rechazo de IPs privadas/loopback/link-local/reservadas antes de conectar, mensaje de error único (sin importar la causa), auditoría de intentos fallidos |
 
 ## Controles obligatorios (SRS sección 8)
 
@@ -31,7 +32,13 @@ fuera del prompt, en código determinístico revisable y testeable.
 - [x] Bloqueo de DDL y DML en el camino de ejecución del agente. Doble capa: validator +
       permisos del rol Postgres (defensa en profundidad, ver ADR y tests de `execution.py`).
 - [x] Timeout de consultas y máximo de filas retornadas. `statement_timeout` a nivel Postgres
-      + `LIMIT` inyectado en el propio SQL validado (no solo truncado post-hoc).
+      + `LIMIT` inyectado en el propio SQL validado (no solo truncado post-hoc). Probado con
+      un `pg_sleep` real cancelado por Postgres (`test_agent_execution.py::TestStatementTimeout`),
+      no solo asumido por el código.
+- [x] Límites de complejidad de la consulta (RF-032). El validador ya restringe a una única
+      tabla física (más CTEs); además acota `JOIN`s y subqueries anidadas, configurable vía
+      `AGENT_SQL_MAX_JOINS`/`AGENT_SQL_MAX_SUBQUERIES` (`sql_validator.py::_check_complexity`,
+      con tests en `TestComplexityLimits`).
 - [ ] Rate limit por usuario y tenant. Sigue sin implementar (ver nota abajo).
 - [x] Separación de secretos, tokens y contexto del prompt. `LLM_API_KEY` nunca entra al
       system prompt ni al contexto del modelo — vive solo en config/provider.
@@ -40,6 +47,8 @@ fuera del prompt, en código determinístico revisable y testeable.
 - [x] Auditoría de tool calls y decisiones críticas. Cada tool call queda en `tool_calls`
       (RF-023/RF-033); intento de leer tabla ajena queda registrado como `ERROR` sin
       ejecutarse (ver `test_agent_orchestrator.py::TestOrchestratorBlocksTenantCrossover`).
+      Nota: esto vive en `tool_calls`/`agent_runs`, no en `audit_events` (que queda reservado
+      a decisiones de auth/RBAC/tenant) — ver `.claude/rules/security.md`.
 - [ ] Principio de mínimo privilegio para todos los servicios. Parcial: `agent_readonly` lo
       cumple; no es un checkbox de una sola implementación, es un principio transversal que
       se sigue revisando fase a fase.
@@ -86,6 +95,28 @@ evaluaron y se decidió no resolverlas todavía):
   para el canal del agente (Fase 3+) — pero su ausencia hoy también deja `/auth/login` sin
   protección contra fuerza bruta más allá del costo intrínseco de Argon2id. Evaluar agregar
   rate limiting básico de auth antes de Fase 8 si el proyecto se expone públicamente antes.
+- **SSRF: queda un canal de timing residual, no de contenido**. El guard (RF-010,
+  `domain/datasets/connections.py::_assert_host_is_not_internal`) rechaza rangos privados/
+  loopback/link-local/reservados con el mismo mensaje genérico que cualquier otro fallo, así
+  que el *contenido* de la respuesta nunca distingue la causa. Pero el rechazo por rango
+  bloqueado es prácticamente instantáneo (resolución DNS + aritmética de IP, sin intento de
+  conexión TCP), mientras que un host externo real que no responde tarda hasta
+  `CONNECTION_TEST_TIMEOUT_SECONDS`. Un atacante que mida *latencia* (no solo la respuesta)
+  puede inferir "está en el rango bloqueado" vs. "es un host externo real que no contestó" —
+  no permite mapear qué host interno específico existe, sólo que el rango sí es tratado como
+  interno. No se corrigió con normalización de tiempos (delay artificial) por ser
+  desproporcionado para el nivel de amenaza de este MVP; revisitar si el proyecto se expone
+  públicamente antes de Fase 8.
+- **MySQL (RF-010) diferido**: el SRS pide registrar conexiones PostgreSQL y MySQL; se
+  implementó solo PostgreSQL (`POST /api/v1/datasets/connections`, Fase 3b) — MySQL
+  requiere una dependencia async nueva y su propio servicio de DB para testearlo con una
+  instancia real, no mocks (`.claude/rules/testing.md`). El schema de request rechaza
+  `type: "mysql"` explícitamente (422) en vez de aceptarlo y fallar más adelante.
+- **Conexiones externas registradas todavía no las usa el agente**: RF-010 cubre solo el
+  registro (credenciales validadas y cifradas). El agente sigue ejecutando SQL únicamente
+  contra datasets importados (Fase 2/3a) — conectar el agente a estas fuentes externas es
+  trabajo no iniciado, sin ninguna de las capas de seguridad de Fase 3a (validator,
+  `agent_readonly`) todavía aplicadas a ellas.
 - **Intentos de login con email inexistente no se auditan**: `auth.login_failed` (RF-004)
   se registra cuando el usuario existe pero la password es incorrecta (scoped a sus
   organizaciones), pero un intento contra un email que no existe no tiene ningún tenant al

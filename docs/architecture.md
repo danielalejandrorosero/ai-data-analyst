@@ -124,6 +124,10 @@ mejora de hardening, no como dependencia del MVP.
   de traer todo.
 - Timeout (RNF-003): `statement_timeout` fijado a nivel de conexión Postgres, no solo un
   timeout de Python alrededor de la llamada.
+- Límites de complejidad (RF-032): además de timeout y límite de filas, el validador acota
+  cantidad de `JOIN`s y de subqueries anidadas (`AGENT_SQL_MAX_JOINS`/
+  `AGENT_SQL_MAX_SUBQUERIES`) — el resto de la superficie de "complejidad" ya está cerrada
+  por el allowlist de una única tabla física.
 - Primer agente (`domain/agent/orchestrator.py`, PydanticAI): tools `inspect_schema` +
   `execute_readonly_sql`, cada tool call queda en `tool_calls` con duración, hash del input
   y resumen del resultado (RF-023, RF-033). Proveedor de LLM: Kimi (Moonshot AI) vía API
@@ -131,6 +135,36 @@ mejora de hardening, no como dependencia del MVP.
 - `POST /api/v1/analyses` corre el agente **síncronamente dentro del request** (misma
   decisión que datasets en Fase 2, sección 12) — el estado `QUEUED`/`PLANNING`/
   `TOOL_RUNNING`/etc. se refleja en la respuesta final, no hay streaming SSE todavía.
+
+## 8.1 Conexiones externas (RF-010, Fase 3b)
+
+- `POST /api/v1/datasets/connections` (rol OWNER/ADMIN) registra una conexión PostgreSQL
+  externa: primero se prueba con un `SELECT 1` controlado (`domain/datasets/connections.py`,
+  timeout corto y fijo) — si falla, no se persiste nada, ni siquiera cifrado. Solo si la
+  prueba pasa se guarda la fila en `data_sources` (tipo `postgres`), con `host`/`port`/
+  `database_name`/`username` en columnas planas (necesarias para catálogo/UI) y la
+  `password` cifrada (Fernet, clave derivada de `SECRET_ENCRYPTION_KEY`) en `secret_ref` —
+  nunca en texto plano, ver `docs/adr/0004-secrets-management.md`.
+- Defensa SSRF: antes de intentar cualquier conexión, se resuelve el `host` por DNS y se
+  rechaza si alguna IP resuelta cae en un rango privado/loopback/link-local/reservado — sin
+  esto, el endpoint sería una primitiva para usar el propio backend como proxy hacia la red
+  interna del despliegue. El DSN se arma con `sqlalchemy.engine.URL.create(...)` (no
+  f-string manual) para que caracteres especiales en usuario/password no corrompan el
+  parseo del host. Ver `docs/security/threat-model.md` para el detalle de amenaza y la
+  limitación de timing residual conocida.
+- **MySQL queda deliberadamente diferido**: el SRS (RF-010) pide ambos motores, pero
+  soportar MySQL implica una dependencia async nueva (driver) y su propio servicio de
+  base de datos para poder testearlo contra una instancia real (regla de testing del
+  proyecto — no mocks). Se decidió no construir esa infraestructura hasta que haya una
+  necesidad concreta. El schema Pydantic (`ExternalConnectionCreateRequest.type`) solo
+  acepta `"postgres"` por ahora — un intento de `"mysql"` falla la validación del request
+  (422), no queda a medio implementar.
+- Una única conexión externa por (organización, tipo) — mismo `UniqueConstraint` que ya
+  existía para la fila `"upload"` de Fase 2. El SRS no pide múltiples conexiones del mismo
+  motor por organización; registrar de nuevo actualiza (reemplaza) la conexión existente.
+- Estas conexiones **todavía no están conectadas al agente** — el agente sigue operando
+  solo sobre datasets importados (Fase 2/3a). Ejecutar SQL del agente contra una fuente
+  externa registrada acá es trabajo pendiente, no incluido en este alcance.
 
 ## 9. Observabilidad
 

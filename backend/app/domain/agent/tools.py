@@ -65,7 +65,11 @@ async def execute_readonly_sql(ctx: RunContext[AgentDeps], sql: str) -> str:
     start = time.monotonic()
     try:
         validated_sql = validate_readonly_select(
-            sql, allowed_table=ctx.deps.table_name, max_rows=ctx.deps.max_rows
+            sql,
+            allowed_table=ctx.deps.table_name,
+            max_rows=ctx.deps.max_rows,
+            max_joins=ctx.deps.max_joins,
+            max_subqueries=ctx.deps.max_subqueries,
         )
     except SqlValidationError as exc:
         await _record_tool_call(

@@ -22,6 +22,19 @@ class ToolCallOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AnalysisListItemOut(BaseModel):
+    """Version liviana para CU-08 (historial) - sin el trace de tool_calls,
+    que solo hace falta en el detalle (GET /analyses/{id})."""
+
+    id: uuid.UUID
+    dataset_id: uuid.UUID
+    question: str
+    status: AnalysisStatus
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class AnalysisOut(BaseModel):
     id: uuid.UUID
     dataset_id: uuid.UUID

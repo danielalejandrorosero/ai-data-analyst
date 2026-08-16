@@ -8,7 +8,14 @@ class SqlValidationError(Exception):
     rechazo, no solo mostrarlo — ver domain/agent/orchestrator.py."""
 
 
-def validate_readonly_select(sql: str, *, allowed_table: str, max_rows: int) -> str:
+def validate_readonly_select(
+    sql: str,
+    *,
+    allowed_table: str,
+    max_rows: int,
+    max_joins: int = 2,
+    max_subqueries: int = 3,
+) -> str:
     """Valida que `sql` sea una unica sentencia SELECT que solo lea de
     `allowed_table` (nombre calificado por schema, ej. "datasets.ds_abc123").
 
@@ -56,6 +63,18 @@ def validate_readonly_select(sql: str, *, allowed_table: str, max_rows: int) -> 
     if statement.args.get("into"):
         raise SqlValidationError("SELECT INTO no esta permitido (crearia una tabla)")
 
+    with_clause = statement.args.get("with_")
+    if with_clause is not None and with_clause.args.get("recursive"):
+        # Una CTE recursiva puede no referenciar NINGUNA tabla real (su
+        # caso base puede ser "SELECT 1", y la parte recursiva solo se
+        # auto-referencia) - eso vacia el set `tables` de abajo y hace que
+        # la validacion de tabla autorizada (y los limites de
+        # _check_complexity, que no cuentan CTEs) se cumplan de forma
+        # vacua sin haber leido la tabla del dataset en absoluto. Ademas es
+        # el vector canonico de un DoS sin bound (RF-032) que ningun otro
+        # chequeo de este validador cubre.
+        raise SqlValidationError("WITH RECURSIVE no esta permitido")
+
     # Los alias de CTE (WITH x AS (...) SELECT * FROM x) se parsean como
     # exp.Table al referenciarlos en el SELECT externo, pero no son tablas
     # reales - sin excluirlos, cualquier CTE rompe la validacion aunque
@@ -73,9 +92,29 @@ def validate_readonly_select(sql: str, *, allowed_table: str, max_rows: int) -> 
             f"La consulta referencia tablas no autorizadas: {', '.join(sorted(disallowed))}"
         )
 
+    _check_complexity(statement, max_joins=max_joins, max_subqueries=max_subqueries)
+
     _cap_limit(statement, max_rows)
 
     return statement.sql(dialect="postgres")
+
+
+def _check_complexity(statement: exp.Select, *, max_joins: int, max_subqueries: int) -> None:
+    """RF-032 (limites de complejidad configurables). El validador ya
+    restringe la consulta a una unica tabla fisica (mas CTEs), asi que lo
+    que queda por acotar es el costo de self-joins y subqueries anidadas."""
+    join_count = len(list(statement.find_all(exp.Join)))
+    if join_count > max_joins:
+        raise SqlValidationError(
+            f"La consulta tiene {join_count} JOIN(s), el maximo permitido es {max_joins}"
+        )
+
+    subquery_count = len(list(statement.find_all(exp.Subquery)))
+    if subquery_count > max_subqueries:
+        raise SqlValidationError(
+            f"La consulta tiene {subquery_count} subquery(s), "
+            f"el maximo permitido es {max_subqueries}"
+        )
 
 
 def _cap_limit(statement: exp.Select, max_rows: int) -> None:
