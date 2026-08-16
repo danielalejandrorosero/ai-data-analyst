@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { ChevronDown, CircleCheck, CircleX, Download } from 'lucide-react'
+import { ChevronDown, Download } from 'lucide-react'
 import type { AnalysisArtifact } from '../../api/analyses'
 import { toolLabel, type TracedToolCall } from './toolTrace'
-import { highlightSql } from './sqlHighlight'
+import { formatSql, highlightSql, summarizeSql } from './sqlHighlight'
 import { ResultTable } from './ResultTable'
 import { ChartArtifact } from './ChartArtifact'
 
@@ -13,6 +13,27 @@ interface SchemaColumn {
 
 function isSchemaOutput(summary: Record<string, unknown> | null): summary is { columns: SchemaColumn[] } {
   return !!summary && Array.isArray((summary as { columns?: unknown }).columns)
+}
+
+// SQL con gutter de numeros de linea (el validador lo re-serializa en una
+// linea, formatSql lo reparte por clausula solo para mostrarlo).
+function SqlBlock({ sql }: { sql: string }) {
+  const lines = formatSql(sql).split('\n')
+  return (
+    <pre className="overflow-x-auto rounded-md bg-ink-950 p-3 font-mono text-[11px] leading-relaxed">
+      <code>
+        {lines.map((line, index) => (
+          // eslint-disable-next-line react/no-array-index-key -- lineas de un mismo SQL, orden estable
+          <span key={index} className="flex">
+            <span className="w-7 shrink-0 pr-3 text-right text-ink-400 select-none" aria-hidden="true">
+              {index + 1}
+            </span>
+            <span className="whitespace-pre text-paper-300">{highlightSql(line)}</span>
+          </span>
+        ))}
+      </code>
+    </pre>
+  )
 }
 
 interface ToolCallBlockProps {
@@ -35,6 +56,17 @@ export function ToolCallBlock({ traced, artifacts, onExport, exporting }: ToolCa
       ? artifacts.find((a) => a.id === toolCall.output_summary?.artifact_id)
       : undefined
 
+  // Fragmento identificable aun colapsada - sin esto, varias "Consulta SQL"
+  // seguidas son indistinguibles sin abrirlas una por una.
+  let fragment = ''
+  if (result) {
+    fragment = summarizeSql(result.sql)
+  } else if (toolCall.tool === 'inspect_schema' && isSchemaOutput(toolCall.output_summary)) {
+    fragment = `columnas: ${toolCall.output_summary.columns.map((c) => c.name).join(', ')}`
+  } else if (chartArtifact) {
+    fragment = chartArtifact.spec.title
+  }
+
   return (
     <div className="rounded-lg border border-ink-700 bg-ink-900/60">
       <button
@@ -42,16 +74,22 @@ export function ToolCallBlock({ traced, artifacts, onExport, exporting }: ToolCa
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
       >
-        <div className="flex items-center gap-2.5">
-          <span className="font-body text-sm font-semibold text-paper-100">{toolLabel(toolCall.tool)}</span>
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <span className="shrink-0 font-body text-sm font-semibold text-paper-100">{toolLabel(toolCall.tool)}</span>
           <span
-            className={`flex items-center gap-1 font-mono text-[11px] ${
-              isError ? 'text-danger-500' : 'text-success-500'
+            className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-[10px] ${
+              isError
+                ? 'border-danger-500/30 bg-danger-500/10 text-danger-500'
+                : 'border-success-500/30 bg-success-500/10 text-success-500'
             }`}
           >
-            {isError ? <CircleX className="h-3 w-3" aria-hidden="true" /> : <CircleCheck className="h-3 w-3" aria-hidden="true" />}
-            {isError ? 'Error' : 'Completado'} · {toolCall.duration_ms}ms
+            <span className={`h-1.5 w-1.5 rounded-full ${isError ? 'bg-danger-500' : 'bg-success-500'}`} aria-hidden="true" />
+            {isError ? 'Error' : 'Completado'}
           </span>
+          <span className="shrink-0 font-mono text-[11px] text-paper-400">{toolCall.duration_ms} ms</span>
+          {fragment && (
+            <span className="hidden truncate font-mono text-[11px] text-paper-400 sm:block">{fragment}</span>
+          )}
         </div>
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-paper-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
@@ -80,9 +118,7 @@ export function ToolCallBlock({ traced, artifacts, onExport, exporting }: ToolCa
 
           {result && (
             <>
-              <pre className="overflow-x-auto rounded-md bg-ink-950 p-3 font-mono text-[11px] leading-relaxed">
-                <code>{highlightSql(result.sql)}</code>
-              </pre>
+              <SqlBlock sql={result.sql} />
               <ResultTable result={result} />
               {resultIndex !== undefined && (
                 <div className="flex items-center gap-2">
