@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.models.membership import Role
 from app.db.models.user import User
 from app.db.session import get_db
@@ -29,7 +30,12 @@ async def import_dataset(
     if membership is None or membership.role not in (Role.OWNER, Role.ADMIN, Role.ANALYST):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No autorizado")
 
-    content = await file.read()
+    # Tope de lectura ANTES de bufferizar todo a memoria (RNF-014): un
+    # archivo de cualquier tamano real solo consume, como maximo,
+    # max_bytes + 1 - el chequeo de tamano en el servicio queda como
+    # backstop, no como unico control.
+    max_bytes = settings.import_max_file_size_mb * 1024 * 1024
+    content = await file.read(max_bytes + 1)
     try:
         return await datasets_service.import_file(
             db,

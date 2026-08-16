@@ -46,3 +46,32 @@ negativos que intentan superarlo (ver `.claude/rules/testing.md` y `RNF-021`).
 
 Este documento se ampliará durante Fase 1 (auth) y Fase 3 (SQL seguro) con el detalle
 concreto de implementación de cada control, a medida que exista código que auditar.
+
+## Revisión Fase 1 + Fase 2 (2026-08-15)
+
+Revisión adversarial de auth (registro/login/RBAC/tenant isolation) y datasets (import
+CSV/Excel). Hallazgos corregidos: timing side-channel de enumeración de usuarios en login
+(se agregó verificación Argon2id contra un hash dummy cuando el email no existe, para que
+el tiempo de respuesta no delate si una cuenta existe), tamaño de archivo validado antes de
+bufferizar todo a memoria, colisión de nombres de columna tras truncado a 63 chars, y una
+condición de carrera en la creación del `data_source` de tipo "upload".
+
+**Limitaciones conocidas, diferidas conscientemente** (no son bugs no vistos — se
+evaluaron y se decidió no resolverlas todavía):
+
+- **DoS por archivo Excel comprimido ("zip bomb")**: el límite de filas (`import_max_rows`)
+  se valida recién después de que Polars parsea el `.xlsx` completo en memoria — un archivo
+  pequeño y válido puede expandirse a un consumo de memoria/CPU grande antes del rechazo.
+  Requiere lectura streaming/acotada o límites de memoria a nivel de proceso, no un fix
+  puntual. Se revisita si el import deja de ser síncrono en el request (ver
+  `docs/architecture.md` sección 12) o en Fase 8 (hardening).
+- **Validación de tipo de archivo solo por extensión**, no por magic bytes/`Content-Type`
+  real. Riesgo bajo hoy (Polars simplemente falla a parsear contenido no correspondiente),
+  pero es una brecha de defensa en profundidad frente al control "MIME validation" que pide
+  la fila "Carga maliciosa de archivo" de la tabla de arriba.
+- **Rate limiting**: todavía no implementado en ningún endpoint (ni `/auth/login` ni
+  `/datasets/import`). La fila "Rate limit por usuario y tenant" del SRS (sección 8) vive
+  en el contexto de "Seguridad y controles de IA", por lo que se interpreta como prioritario
+  para el canal del agente (Fase 3+) — pero su ausencia hoy también deja `/auth/login` sin
+  protección contra fuerza bruta más allá del costo intrínseco de Argon2id. Evaluar agregar
+  rate limiting básico de auth antes de Fase 8 si el proyecto se expone públicamente antes.

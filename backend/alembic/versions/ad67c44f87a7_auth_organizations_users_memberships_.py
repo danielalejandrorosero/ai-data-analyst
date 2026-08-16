@@ -72,6 +72,13 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_memberships_user_id'), table_name='memberships')
     op.drop_index(op.f('ix_memberships_organization_id'), table_name='memberships')
     op.drop_table('memberships')
+    # create_table con un Enum inline crea implicitamente el tipo Postgres
+    # membership_role - autogenerate no lo agrega al downgrade, pero sin
+    # este drop el ciclo upgrade -> downgrade -> upgrade rompe con
+    # "type membership_role already exists".
+    sa.Enum('OWNER', 'ADMIN', 'ANALYST', 'VIEWER', name='membership_role').drop(
+        op.get_bind(), checkfirst=True
+    )
     op.drop_index(op.f('ix_audit_events_organization_id'), table_name='audit_events')
     op.drop_index(op.f('ix_audit_events_created_at'), table_name='audit_events')
     op.drop_table('audit_events')

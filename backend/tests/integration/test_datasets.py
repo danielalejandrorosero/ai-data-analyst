@@ -102,6 +102,25 @@ class TestImportDataset:
         )
         assert response.status_code == 403
 
+    async def test_import_to_organization_without_membership_is_rejected(
+        self, client, unique_email
+    ):
+        owner_response = await _register(client, unique_email)
+        org_id = owner_response.json()["user"]["memberships"][0]["organization_id"]
+
+        # Usuario autenticado, pero sin ningun membership en `org_id`
+        # (ni siquiera VIEWER) - distinto del caso VIEWER de arriba.
+        outsider_response = await _register(client, f"outsider-{unique_email}")
+        outsider_token = outsider_response.json()["access_token"]
+
+        response = await client.post(
+            "/api/v1/datasets/import",
+            data={"organization_id": org_id},
+            files=_csv_file(),
+            headers={"Authorization": f"Bearer {outsider_token}"},
+        )
+        assert response.status_code == 403
+
 
 class TestListAndSchema:
     async def test_list_only_returns_datasets_of_that_organization(self, client, unique_email):
@@ -128,6 +147,43 @@ class TestListAndSchema:
         )
         assert response.status_code == 200
         assert response.json() == []
+
+    async def test_list_datasets_without_token_is_rejected(self, client, unique_email):
+        register_response = await _register(client, unique_email)
+        org_id = register_response.json()["user"]["memberships"][0]["organization_id"]
+
+        response = await client.get(f"/api/v1/datasets?organization_id={org_id}")
+        assert response.status_code == 401
+
+    async def test_list_datasets_without_membership_is_rejected(self, client, unique_email):
+        owner_response = await _register(client, unique_email)
+        owner_org_id = owner_response.json()["user"]["memberships"][0]["organization_id"]
+
+        outsider_response = await _register(client, f"outsider-{unique_email}")
+        outsider_token = outsider_response.json()["access_token"]
+
+        response = await client.get(
+            f"/api/v1/datasets?organization_id={owner_org_id}",
+            headers={"Authorization": f"Bearer {outsider_token}"},
+        )
+        assert response.status_code == 403
+
+    async def test_get_schema_without_token_is_rejected(self, client, unique_email):
+        owner_response = await _register(client, unique_email)
+        owner_body = owner_response.json()
+        owner_token = owner_body["access_token"]
+        owner_org_id = owner_body["user"]["memberships"][0]["organization_id"]
+
+        import_response = await client.post(
+            "/api/v1/datasets/import",
+            data={"organization_id": owner_org_id},
+            files=_csv_file(),
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+        dataset_id = import_response.json()["id"]
+
+        response = await client.get(f"/api/v1/datasets/{dataset_id}/schema")
+        assert response.status_code == 401
 
     async def test_get_schema_of_dataset_in_another_org_returns_404(self, client, unique_email):
         owner_response = await _register(client, unique_email)

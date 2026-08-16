@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Uuid, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Uuid, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,16 +15,21 @@ class Dataset(Base):
     `table_name` referencia la tabla fisica real en el schema Postgres
     `datasets` (separado de `public`, donde viven las tablas de la
     plataforma) - ahi es donde vive la data importada, no en esta fila.
-    `schema` guarda columnas/tipos inferidos, no la data en si (principio
-    de persistencia del SRS seccion 6.1: resultados grandes como
-    artefacto/referencia, no como campo gigante en una fila).
+    Esas tablas fisicas viven FUERA del ciclo de vida de Alembic (se crean
+    en runtime, ver domain/datasets/service.py) - un `alembic downgrade`
+    de esta migracion borra solo el catalogo, no los datos fisicos. Ver
+    docs/architecture.md seccion sobre datasets.
+    `schema_json` guarda columnas/tipos inferidos, no la data en si
+    (principio de persistencia del SRS seccion 6.1: resultados grandes
+    como artefacto/referencia, no como campo gigante en una fila).
     """
 
     __tablename__ = "datasets"
+    __table_args__ = (Index("ix_datasets_org_created_at", "organization_id", "created_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
     source_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("data_sources.id", ondelete="CASCADE"), nullable=False, index=True

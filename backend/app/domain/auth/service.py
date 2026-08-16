@@ -8,7 +8,12 @@ from app.db.models.organization import Organization
 from app.db.models.user import User
 from app.domain.audit import service as audit_service
 from app.domain.auth.schemas import MembershipOut, OrganizationOut, UserOut
-from app.domain.auth.security import create_access_token, hash_password, verify_password
+from app.domain.auth.security import (
+    create_access_token,
+    hash_password,
+    verify_dummy_password,
+    verify_password,
+)
 
 
 class EmailAlreadyRegisteredError(Exception):
@@ -87,8 +92,14 @@ async def authenticate(db: AsyncSession, *, email: str, password: str) -> tuple[
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
-    password_ok = user is not None and user.password_hash is not None
-    if not password_ok or not verify_password(password, user.password_hash):
+    if user is None or user.password_hash is None:
+        # Verificamos igual contra un hash dummy: si retornamos de inmediato
+        # sin llamar a Argon2id, el tiempo de respuesta delata si el email
+        # existe o no (ver security.verify_dummy_password).
+        verify_dummy_password(password)
+        raise InvalidCredentialsError()
+
+    if not verify_password(password, user.password_hash):
         raise InvalidCredentialsError()
 
     # Un evento de auditoria vive por tenant (audit_events.organization_id) -

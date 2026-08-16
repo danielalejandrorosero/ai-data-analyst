@@ -5,6 +5,7 @@ import uuid
 import polars as pl
 import sqlalchemy as sa
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.schema import CreateSchema, CreateTable
 
@@ -25,23 +26,33 @@ class DatasetImportError(Exception):
     """Error de negocio al importar (archivo invalido, muy grande, no parsea, etc.)."""
 
 
+# Postgres trunca identificadores a 63 bytes (NAMEDATALEN=64) en silencio.
+# El nombre base se acota mas corto para dejar lugar al sufijo numerico que
+# _dedupe_column_names pueda necesitar agregar - si se truncara a 63 antes
+# de dedupear, dos columnas "distintas" para Python podrian colisionar en
+# el mismo identificador fisico sin que nadie se entere.
+_MAX_COLUMN_NAME_LENGTH = 63
+_BASE_NAME_LENGTH = 55
+
+
 def _sanitize_column_name(name: str, index: int) -> str:
     cleaned = _COLUMN_NAME_RE.sub("_", name.strip())
     if not cleaned or cleaned[0].isdigit():
         cleaned = f"col_{index}_{cleaned}"
-    return cleaned.lower()[:63]
+    return cleaned.lower()[:_BASE_NAME_LENGTH]
 
 
 def _dedupe_column_names(names: list[str]) -> list[str]:
-    seen: dict[str, int] = {}
+    seen: set[str] = set()
     result = []
     for name in names:
-        if name not in seen:
-            seen[name] = 0
-            result.append(name)
-        else:
-            seen[name] += 1
-            result.append(f"{name}_{seen[name]}")
+        candidate = name
+        suffix = 0
+        while candidate in seen:
+            suffix += 1
+            candidate = f"{name}_{suffix}"[:_MAX_COLUMN_NAME_LENGTH]
+        seen.add(candidate)
+        result.append(candidate)
     return result
 
 
@@ -62,11 +73,26 @@ async def _get_or_create_upload_source(db: AsyncSession, organization_id: uuid.U
         )
     )
     source = result.scalar_one_or_none()
-    if source is None:
-        source = DataSource(organization_id=organization_id, type="upload", status="active")
-        db.add(source)
-        await db.flush()
-    return source
+    if source is not None:
+        return source
+
+    # ON CONFLICT DO NOTHING contra uq_data_source_org_type: dos imports
+    # concurrentes del primer dataset de una organizacion nueva no pueden
+    # crear dos filas "upload" (select-then-insert sin esto es una
+    # condicion de carrera real, no solo teorica).
+    insert_stmt = (
+        pg_insert(DataSource)
+        .values(organization_id=organization_id, type="upload", status="active")
+        .on_conflict_do_nothing(constraint="uq_data_source_org_type")
+    )
+    await db.execute(insert_stmt)
+
+    result = await db.execute(
+        select(DataSource).where(
+            DataSource.organization_id == organization_id, DataSource.type == "upload"
+        )
+    )
+    return result.scalar_one()
 
 
 async def import_file(

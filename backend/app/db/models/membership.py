@@ -22,8 +22,12 @@ class Membership(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    # Sin index=True en user_id a proposito: el indice de
+    # uq_membership_user_org ya cubre lookups por user_id solo (es la
+    # columna principal de ese indice compuesto) - un indice individual
+    # aca seria puro overhead de escritura sin beneficio de lectura.
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True

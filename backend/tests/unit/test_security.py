@@ -6,6 +6,7 @@ from app.domain.auth.security import (
     create_access_token,
     decode_access_token,
     hash_password,
+    verify_dummy_password,
     verify_password,
 )
 
@@ -24,6 +25,16 @@ class TestPasswordHashing:
     def test_verify_password_rejects_wrong_password(self):
         hashed = hash_password("correcthorsebattery")
         assert verify_password("wrongpassword", hashed) is False
+
+    def test_verify_password_rejects_corrupted_hash_instead_of_raising(self):
+        # InvalidHashError (hash malformado), no solo VerifyMismatchError -
+        # antes de este fix, esto tiraba una excepcion sin capturar.
+        assert verify_password("cualquier-password", "esto-no-es-un-hash-argon2") is False
+
+    def test_verify_dummy_password_never_raises(self):
+        # Se usa para igualar el tiempo de respuesta cuando el email no
+        # existe (ver domain/auth/service.authenticate) - no debe fallar.
+        verify_dummy_password("cualquier-cosa")
 
 
 class TestJwt:

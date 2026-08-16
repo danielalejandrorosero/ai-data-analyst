@@ -131,3 +131,35 @@ El SRS menciona `search_documents`, pgvector y "RAG documental" en la arquitectu
 pero no define RF numerados con criterios de aceptación para carga y permisos de documentos.
 **Antes de implementar la Fase 6, el SRS debe actualizarse con esos RF específicos.** Este
 documento no debe anticipar ni inventar esa especificación funcional.
+
+## 12. Datasets: tablas físicas dinámicas (fuera del ciclo de vida de Alembic)
+
+Cada dataset importado (RF-011) crea una **tabla Postgres real** en el schema `datasets`
+(separado de `public`, donde viven las tablas de la plataforma), con columnas inferidas del
+CSV/Excel — ver `backend/app/domain/datasets/service.py`. Esto es una excepción deliberada a
+la regla general (`.claude/rules/database.md`: "todo cambio de esquema pasa por una migración
+Alembic"): el esquema de esas tablas es arbitrario y decidido en runtime por el archivo que
+sube cada usuario, no algo que tenga sentido versionar como schema de la plataforma.
+
+Consecuencias a tener presentes:
+
+- `alembic downgrade` de la migración de `datasets`/`data_sources` borra solo el **catálogo**
+  (`public.datasets`, `public.data_sources`) — nunca toca el schema `datasets` ni sus tablas
+  físicas, porque Alembic no sabe que existen. Un `downgrade base` no deja la base de datos en
+  un estado realmente pristino si hay datasets importados.
+- Cuando exista borrado de datasets (todavía no implementado), debe borrar la fila de catálogo
+  **y** hacer `DROP TABLE datasets.ds_<id>` de forma atómica, en la misma transacción — mismo
+  patrón que ya usa `import_file` para crear ambas cosas juntas.
+- La creación de la tabla física ocurre en la misma transacción de sesión que el insert del
+  catálogo y el `audit_event` (ver `service.py`, `conn = await db.connection()`), así que un
+  fallo a mitad de camino no deja tablas huérfanas — pero esto es válido para la ruta de
+  *creación*, no para el rollback de Alembic descrito arriba.
+
+**Divergencia conocida con el diagrama de la sección 1**: el diagrama y la sección 4 describen
+el import de datasets como un job de `workers/` (ARQ). La implementación actual de Fase 2
+ejecuta el import **de forma síncrona dentro del propio request HTTP** (`POST
+/api/v1/datasets/import` lee, parsea e inserta todo antes de responder) — es una simplificación
+consciente para el MVP de Fase 2, no un error. Si `import_max_rows` (200k por defecto) empieza
+a generar timeouts de request reales, mover el import a un job de `workers/` (con polling o
+notificación de estado) es el rediseño esperado — no antes, para no construir infraestructura
+async sin una necesidad concreta todavía medida.

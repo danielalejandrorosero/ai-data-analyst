@@ -4,7 +4,7 @@ from typing import Any
 
 import jwt
 from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
+from argon2.exceptions import Argon2Error, InvalidHashError
 
 from app.core.config import settings
 
@@ -20,8 +20,25 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, password_hash: str) -> bool:
     try:
         return _hasher.verify(password_hash, password)
-    except VerifyMismatchError:
+    except (Argon2Error, InvalidHashError):
+        # Cubre password incorrecta (VerifyMismatchError, subclase de
+        # Argon2Error) y tambien un hash corrupto/invalido en la DB
+        # (InvalidHashError - OJO: esta NO hereda de Argon2Error, hereda
+        # de ValueError, hay que capturarla aparte). En ambos casos el
+        # resultado correcto es "no autenticado", no un 500.
         return False
+
+
+# Hash dummy fijo, calculado una sola vez al importar. Se usa para que
+# verificar contra un email que no existe cueste lo mismo (Argon2id) que
+# verificar contra uno que si existe - sin esto, la ausencia de llamada a
+# verify_password() cuando el usuario no existe crea una diferencia de
+# tiempo medible que permite enumerar emails registrados (RNF-012).
+_DUMMY_PASSWORD_HASH = hash_password("dummy-password-for-constant-time-auth")
+
+
+def verify_dummy_password(password: str) -> None:
+    verify_password(password, _DUMMY_PASSWORD_HASH)
 
 
 def create_access_token(user_id: uuid.UUID) -> str:
