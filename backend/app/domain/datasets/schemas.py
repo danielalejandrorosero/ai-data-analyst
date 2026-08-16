@@ -14,8 +14,11 @@ class DatasetOut(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     source_id: uuid.UUID
+    source_type: str
+    source_extension: str | None
     name: str
     row_count: int
+    column_count: int
     created_at: datetime
 
     model_config = {"from_attributes": True}

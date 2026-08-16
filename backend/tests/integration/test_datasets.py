@@ -123,6 +123,29 @@ class TestImportDataset:
 
 
 class TestListAndSchema:
+    async def test_list_includes_source_type_extension_and_column_count(self, client, unique_email):
+        owner_response = await _register(client, unique_email)
+        owner_body = owner_response.json()
+        owner_token = owner_body["access_token"]
+        owner_org_id = owner_body["user"]["memberships"][0]["organization_id"]
+
+        await client.post(
+            "/api/datasets/import",
+            data={"organization_id": owner_org_id, "name": "Ventas"},
+            files=_csv_file(),
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+
+        response = await client.get(
+            f"/api/datasets?organization_id={owner_org_id}",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+        assert response.status_code == 200
+        [dataset] = response.json()
+        assert dataset["source_type"] == "upload"
+        assert dataset["source_extension"] == "csv"
+        assert dataset["column_count"] == 2
+
     async def test_list_only_returns_datasets_of_that_organization(self, client, unique_email):
         owner_response = await _register(client, unique_email)
         owner_body = owner_response.json()

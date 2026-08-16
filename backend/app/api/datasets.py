@@ -70,8 +70,21 @@ async def list_datasets(
     if membership is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No autorizado")
 
-    datasets = await datasets_service.list_datasets(db, organization_id=organization_id)
-    return [DatasetOut.model_validate(dataset) for dataset in datasets]
+    rows = await datasets_service.list_datasets(db, organization_id=organization_id)
+    return [
+        DatasetOut(
+            id=dataset.id,
+            organization_id=dataset.organization_id,
+            source_id=dataset.source_id,
+            source_type=source_type,
+            source_extension=dataset.source_extension,
+            name=dataset.name,
+            row_count=dataset.row_count,
+            column_count=len(dataset.schema_json),
+            created_at=dataset.created_at,
+        )
+        for dataset, source_type in rows
+    ]
 
 
 @router.post(

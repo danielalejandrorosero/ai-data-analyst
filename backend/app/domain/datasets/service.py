@@ -168,6 +168,7 @@ async def import_file(
         table_name=table_name,
         row_count=df.height,
         schema_json=[column.model_dump() for column in columns_schema],
+        source_extension=lower.rsplit(".", 1)[1],
     )
     db.add(dataset)
     await db.flush()
@@ -186,13 +187,19 @@ async def import_file(
     )
 
 
-async def list_datasets(db: AsyncSession, *, organization_id: uuid.UUID) -> list[Dataset]:
+async def list_datasets(
+    db: AsyncSession, *, organization_id: uuid.UUID
+) -> list[tuple[Dataset, str]]:
+    """Devuelve cada dataset junto al `type` de su DataSource ("upload" o
+    "postgres") - Dataset no tiene esa columna, y el catalogo (RF-012)
+    necesita mostrarla sin que el cliente tenga que resolverla aparte."""
     result = await db.execute(
-        select(Dataset)
+        select(Dataset, DataSource.type)
+        .join(DataSource, Dataset.source_id == DataSource.id)
         .where(Dataset.organization_id == organization_id)
         .order_by(Dataset.created_at.desc())
     )
-    return list(result.scalars())
+    return list(result.all())
 
 
 async def get_dataset_by_id(db: AsyncSession, dataset_id: uuid.UUID) -> Dataset | None:

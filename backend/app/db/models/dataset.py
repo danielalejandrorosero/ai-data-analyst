@@ -37,5 +37,11 @@ class Dataset(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     table_name: Mapped[str] = mapped_column(String(63), nullable=False, unique=True)
     row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Extension del archivo original ("csv"/"xlsx") para datasets de tipo
+    # "upload" - nullable porque no aplica a datasets de otro origen (ni a
+    # las filas creadas antes de esta columna). Solo para mostrar el
+    # icono correcto en el catalogo (RF-012), no afecta como se lee la
+    # tabla fisica ya creada.
+    source_extension: Mapped[str | None] = mapped_column(String(10), nullable=True)
     schema_json: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

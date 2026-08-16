@@ -85,8 +85,15 @@ services:
       dockerfile: infrastructure/docker/frontend.Dockerfile
     environment:
       VITE_API_BASE_URL: http://localhost:8000/api
+      # Los eventos nativos de filesystem no siempre cruzan bien la
+      # frontera Windows -> contenedor con un bind mount - sin esto el
+      # watcher de Vite se queda sirviendo una version vieja en silencio.
+      CHOKIDAR_USEPOLLING: "true"
     ports:
       - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
       - api
 
