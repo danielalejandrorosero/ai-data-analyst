@@ -5,11 +5,18 @@
 
 ## Estado del proyecto
 
-Fase 0 (base del repositorio) + Fase 1 (auth + tenants) completas. Existe autenticación real
-por credenciales + JWT (registro, login, roles OWNER/ADMIN/ANALYST/VIEWER, aislamiento por
-`organization_id`, audit log) — ver `POST /api/v1/auth/register`, `POST /api/v1/auth/login`,
-`GET /api/v1/auth/me`, `POST /api/v1/organizations`, `GET /api/v1/audit-events`. Datasets,
-agente, SQL seguro y visualización son Fase 2 en adelante. El frontend todavía no tiene
+Fase 0 (base del repositorio) + Fase 1 (auth + tenants) + Fase 2 (datasets) completas.
+
+- Auth real por credenciales + JWT (registro, login, roles OWNER/ADMIN/ANALYST/VIEWER,
+  aislamiento por `organization_id`, audit log): `POST /api/v1/auth/register`,
+  `POST /api/v1/auth/login`, `GET /api/v1/auth/me`, `POST /api/v1/organizations`,
+  `GET /api/v1/audit-events`.
+- Import de datasets CSV/Excel real (no un mock): `POST /api/v1/datasets/import` parsea el
+  archivo, valida tamaño/filas, y carga los datos en una tabla física de PostgreSQL (schema
+  `datasets`) — no queda como archivo suelto. `GET /api/v1/datasets`,
+  `GET /api/v1/datasets/{id}/schema` para el catálogo.
+
+Agente, SQL seguro y visualización son Fase 3 en adelante. El frontend todavía no tiene
 scaffolding (backend-first, ver `docs/adr/`).
 Ver el roadmap completo en [`docs/SRS.md`](docs/SRS.md#13-roadmap-de-implementación).
 
