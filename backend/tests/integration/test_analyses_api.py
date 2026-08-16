@@ -2,7 +2,9 @@ import io
 import uuid
 
 import pytest
+from app.core.config import settings
 from app.db.models.analysis import Analysis, AnalysisStatus
+from app.db.models.dataset import Dataset
 from app.db.models.membership import Membership, Role
 from sqlalchemy import select
 
@@ -58,6 +60,27 @@ async def _register_and_import(client, unique_email: str):
     )
     dataset_id = import_response.json()["id"]
     return token, org_id, dataset_id
+
+
+async def _import_csv(client, token: str, org_id: str, *, filename: str, content: bytes) -> str:
+    """Como _register_and_import pero con contenido de CSV a medida y
+    reusando una org/token existente - usado por los tests de export que
+    necesitan un dataset real con mas de _EVIDENCE_ROW_CAP (100) filas
+    para probar la re-ejecucion (RF-043)."""
+    import_response = await client.post(
+        "/api/datasets/import",
+        data={"organization_id": org_id},
+        files={"file": (filename, io.BytesIO(content), "text/csv")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    return import_response.json()["id"]
+
+
+async def _qualified_table_name(db_session, dataset_id: str) -> str:
+    dataset = (
+        await db_session.execute(select(Dataset).where(Dataset.id == uuid.UUID(dataset_id)))
+    ).scalar_one()
+    return f"datasets.{dataset.table_name}"
 
 
 async def _set_status_directly(db_session, analysis_id: str, status: AnalysisStatus) -> None:
@@ -638,13 +661,18 @@ class TestExportAnalysisResult:
             headers={"Authorization": f"Bearer {token}"},
         )
         analysis_id = create_response.json()["id"]
+        # Prefijo "[polars]" (run_analysis, no es SQL real): el export no
+        # re-ejecuta nada, exporta la evidencia persistida tal cual - lo
+        # que este test realmente cubre es la seleccion del ULTIMO
+        # resultado por defecto, no la re-ejecucion (ver
+        # TestExportAnalysisResult mas abajo para eso).
         await _set_result_directly(
             db_session,
             analysis_id,
             [
-                {"sql": "SELECT 1", "columns": ["a"], "rows": [[1]], "row_count": 1},
+                {"sql": "[polars] group_by=[] agg={}", "columns": ["a"], "rows": [[1]], "row_count": 1},
                 {
-                    "sql": "SELECT 2",
+                    "sql": "[polars] group_by=['a'] agg={'b': 'sum'}",
                     "columns": ["a", "b"],
                     "rows": [[1, 2], [3, 4]],
                     "row_count": 2,
@@ -660,6 +688,7 @@ class TestExportAnalysisResult:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("application/json")
         assert response.json() == [{"a": 1, "b": 2}, {"a": 3, "b": 4}]
+        assert "x-result-truncated" not in response.headers
 
     async def test_export_csv_content(self, client, unique_email, db_session):
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
@@ -672,7 +701,7 @@ class TestExportAnalysisResult:
         await _set_result_directly(
             db_session,
             analysis_id,
-            [{"sql": "SELECT 1", "columns": ["a", "b"], "rows": [[1, 2]], "row_count": 1}],
+            [{"sql": "[polars] group_by=[] agg={}", "columns": ["a", "b"], "rows": [[1, 2]], "row_count": 1}],
         )
 
         response = await client.get(
@@ -697,8 +726,8 @@ class TestExportAnalysisResult:
             db_session,
             analysis_id,
             [
-                {"sql": "SELECT 1", "columns": ["a"], "rows": [[1]], "row_count": 1},
-                {"sql": "SELECT 2", "columns": ["a"], "rows": [[2]], "row_count": 1},
+                {"sql": "[polars] group_by=[] agg={}", "columns": ["a"], "rows": [[1]], "row_count": 1},
+                {"sql": "[polars] group_by=[] agg={}", "columns": ["a"], "rows": [[2]], "row_count": 1},
             ],
         )
 
@@ -796,5 +825,210 @@ class TestExportAnalysisResult:
         response = await client.get(
             f"/api/analyses/{analysis_id}/export",
             headers={"Authorization": f"Bearer {outsider_token}"},
+        )
+        assert response.status_code == 404
+
+    async def test_export_real_sql_query_returns_full_result_beyond_evidence_cap(
+        self, client, unique_email, db_session
+    ):
+        """RF-043: la evidencia persistida en Analysis.result_json esta
+        acotada a 100 filas (tools.py::_EVIDENCE_ROW_CAP), pero el export
+        de una consulta SQL real tiene que re-ejecutarla contra el
+        dataset y devolver el resultado completo (150 filas aca), no la
+        muestra acotada."""
+        token, org_id, _dataset_id = await _register_and_import(client, unique_email)
+        row_count = 150
+        csv_content = b"n\n" + "\n".join(str(i) for i in range(row_count)).encode()
+        dataset_id = await _import_csv(
+            client, token, org_id, filename="big.csv", content=csv_content
+        )
+        table = await _qualified_table_name(db_session, dataset_id)
+
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        # Simula lo que execute_readonly_sql hubiera persistido: solo una
+        # MUESTRA de 100 filas como evidencia, aunque el resultado real
+        # (row_count) tenga 150.
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [
+                {
+                    "sql": f"SELECT n FROM {table} ORDER BY n",
+                    "columns": ["n"],
+                    "rows": [[i] for i in range(100)],
+                    "row_count": row_count,
+                    "truncated": False,
+                    "evidence_truncated": True,
+                }
+            ],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "json"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == row_count
+        assert body[0] == {"n": 0}
+        assert body[-1] == {"n": row_count - 1}
+        assert "x-result-truncated" not in response.headers
+
+    async def test_export_polars_result_uses_persisted_evidence_unchanged(
+        self, client, unique_email, db_session
+    ):
+        """RF-043: una entrada de run_analysis (prefijo "[polars]") no es
+        SQL real, no se puede re-ejecutar - el export sigue sirviendo la
+        evidencia persistida tal cual, sin tocar la base de datos."""
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [
+                {
+                    "sql": "[polars] group_by=['a'] agg={'b': 'sum'}",
+                    "columns": ["a", "b_sum"],
+                    "rows": [[1, 2]],
+                    "row_count": 1,
+                    "truncated": False,
+                    "evidence_truncated": False,
+                }
+            ],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "json"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.json() == [{"a": 1, "b_sum": 2}]
+        assert "x-result-truncated" not in response.headers
+
+    async def test_export_real_sql_query_truncated_by_max_rows_sets_header(
+        self, client, unique_email, db_session, monkeypatch
+    ):
+        """RF-043: si la re-ejecucion contra Postgres sigue truncada (mas
+        filas reales que agent_sql_max_rows), el header
+        X-Result-Truncated tiene que comunicarlo - nunca meterlo adentro
+        del archivo exportado."""
+        monkeypatch.setattr(settings, "agent_sql_max_rows", 5)
+        token, org_id, _dataset_id = await _register_and_import(client, unique_email)
+        csv_content = b"n\n" + "\n".join(str(i) for i in range(10)).encode()
+        dataset_id = await _import_csv(
+            client, token, org_id, filename="trunc.csv", content=csv_content
+        )
+        table = await _qualified_table_name(db_session, dataset_id)
+
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [
+                {
+                    "sql": f"SELECT n FROM {table} ORDER BY n",
+                    "columns": ["n"],
+                    "rows": [[i] for i in range(5)],
+                    "row_count": 5,
+                    "truncated": False,
+                    "evidence_truncated": False,
+                }
+            ],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "json"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert len(response.json()) == 5
+        assert response.headers["x-result-truncated"] == "true"
+
+    async def test_export_polars_evidence_truncated_sets_header(
+        self, client, unique_email, db_session
+    ):
+        """RF-043: una entrada [polars] cuya evidencia persistida ya venia
+        acotada (evidence_truncated=true) tambien tiene que comunicar el
+        truncamiento por header, aunque no haya re-ejecucion posible."""
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [
+                {
+                    "sql": "[polars] group_by=['a'] agg={'b': 'sum'}",
+                    "columns": ["a", "b_sum"],
+                    "rows": [[1, 2]],
+                    "row_count": 150,
+                    "truncated": False,
+                    "evidence_truncated": True,
+                }
+            ],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "json"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.headers["x-result-truncated"] == "true"
+
+    async def test_export_real_sql_query_execution_failure_returns_404(
+        self, client, unique_email, db_session
+    ):
+        """RF-043: si la re-ejecucion contra Postgres falla (ej. la tabla
+        fisica ya no existe), el endpoint responde 404 controlado - nunca
+        un 500 crudo con detalles internos."""
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [
+                {
+                    "sql": "SELECT * FROM datasets.ds_does_not_exist_xyz",
+                    "columns": ["a"],
+                    "rows": [[1]],
+                    "row_count": 1,
+                    "truncated": False,
+                    "evidence_truncated": False,
+                }
+            ],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "json"},
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 404

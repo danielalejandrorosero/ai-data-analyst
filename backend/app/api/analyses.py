@@ -17,7 +17,7 @@ from app.db.models.tool_call import ToolCall
 from app.db.models.user import User
 from app.db.session import get_db
 from app.domain.agent.cancellation import CancellationError, cancel_analysis_job
-from app.domain.agent.export import ExportError, rows_to_csv, rows_to_json, select_result
+from app.domain.agent.export import ExportError, build_export_payload, rows_to_csv, rows_to_json
 from app.domain.agent.schemas import (
     AnalysisArtifactOut,
     AnalysisCancelOut,
@@ -271,19 +271,21 @@ async def export_analysis_result(
     analysis = await _get_visible_analysis(db, analysis_id=analysis_id, current_user=current_user)
 
     try:
-        selected = select_result(analysis.result_json, query_index=query_index)
+        payload = await build_export_payload(db, analysis=analysis, query_index=query_index)
     except ExportError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    columns, rows = selected["columns"], selected["rows"]
+    columns, rows = payload.columns, payload.rows
     filename = f"analysis-{analysis.id}.{export_format}"
     if export_format == "csv":
         content, media_type = rows_to_csv(columns, rows), "text/csv"
     else:
         content, media_type = rows_to_json(columns, rows), "application/json"
 
-    return Response(
-        content=content,
-        media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if payload.truncated:
+        # RF-043: comunica el truncamiento fuera del cuerpo del archivo -
+        # nunca inyectar texto extra en un CSV/JSON valido.
+        headers["X-Result-Truncated"] = "true"
+
+    return Response(content=content, media_type=media_type, headers=headers)
