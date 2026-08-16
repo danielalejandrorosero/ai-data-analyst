@@ -174,6 +174,11 @@ mejora de hardening, no como dependencia del MVP.
     deja el `Analysis` en `CANCELLED`. El endpoint de cancelación mismo fuerza esa
     transición cuando `job.abort()` confirma que abortó y el análisis sigue en un estado no
     terminal — sin esto, quedaba colgado en `QUEUED` para siempre.
+- **Memoria entre análisis del mismo dataset** (no pedida por el SRS, decisión propia — ver
+  [`adr/0010-agent-history-context.md`](./adr/0010-agent-history-context.md)): antes de
+  correr el agente, `orchestrator.py` antepone a la pregunta actual el texto de los últimos
+  `AGENT_HISTORY_MAX_ANALYSES` análisis `COMPLETED` del mismo dataset (pregunta/respuesta/SQL
+  ya auditados), como contexto de solo lectura — nunca re-ejecuta sus tool calls.
   - Cuando el job SÍ estaba corriendo, la cancelación llega como `asyncio.CancelledError`
     dentro de `run_analysis` (una `BaseException`, no `Exception` — no la captura el except
     genérico de errores inesperados) — se deja el `Analysis`/`AgentRun` en `CANCELLED` y se
@@ -250,7 +255,9 @@ mejora de hardening, no como dependencia del MVP.
   columna entera devuelve `numeric` en Postgres (para evitar overflow), que asyncpg decodifica
   como `Decimal` — `json.dumps` no lo serializa. Se normaliza en el único punto donde las
   filas salen de Postgres (`domain/agent/execution.py::_json_safe`, también cubre columnas
-  Date/DateTime), para que nada río abajo tenga que repetir el chequeo.
+  Date/DateTime), para que nada río abajo tenga que repetir el chequeo. La elección de
+  asyncpg como driver (en vez de psycopg3) está justificada en
+  [`adr/0008-async-postgres-driver.md`](./adr/0008-async-postgres-driver.md).
 
 ## 9. Observabilidad
 
