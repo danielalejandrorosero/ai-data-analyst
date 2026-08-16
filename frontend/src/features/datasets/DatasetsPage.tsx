@@ -23,7 +23,14 @@ export function DatasetsPage() {
     <AppShell active="datasets">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="font-body text-3xl font-bold text-paper-100">Datasets</h1>
+          <h1 className="flex items-baseline gap-2.5 font-body text-3xl font-bold text-paper-100">
+            Datasets
+            {datasets.data && (
+              <span className="font-mono text-sm font-normal text-paper-400">
+                {datasets.data.length} activo{datasets.data.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </h1>
           <p className="mt-1 font-body text-sm text-paper-400">
             Fuentes de datos disponibles para consultar
           </p>
