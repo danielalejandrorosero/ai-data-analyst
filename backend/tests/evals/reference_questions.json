@@ -1,0 +1,202 @@
+[
+  {
+    "id": "diamonds-01",
+    "dataset_name": "Diamantes: precios y quilates",
+    "dataset_lookup_name": "diamantes_eval",
+    "question": "¿Cuál es el precio promedio de los diamantes con corte Ideal?",
+    "expected_answer_contains": ["3457", "3458", "Ideal"],
+    "expected_sql_pattern": "AVG.*price.*WHERE.*cut.*=.*Ideal",
+    "category": "aggregation",
+    "verified_value": "SELECT ROUND(AVG(price)::numeric,2) FROM datasets.ds_6f233fa79bca4a5aaf48f443c60607f7 WHERE cut='Ideal' -> 3457.54 (n=21551), verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "diamonds-02",
+    "dataset_name": "Diamantes: precios y quilates",
+    "dataset_lookup_name": "diamantes_eval",
+    "question": "¿Cuál es el precio promedio de los diamantes con corte Fair?",
+    "expected_answer_contains": ["4358", "4359", "Fair"],
+    "expected_sql_pattern": "AVG.*price.*WHERE.*cut.*=.*Fair",
+    "category": "aggregation",
+    "verified_value": "SELECT ROUND(AVG(price)::numeric,2) FROM datasets.ds_6f233fa79bca4a5aaf48f443c60607f7 WHERE cut='Fair' -> 4358.76 (n=1610), verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "diamonds-03",
+    "dataset_name": "Diamantes: precios y quilates",
+    "dataset_lookup_name": "diamantes_eval",
+    "question": "¿Cuántos diamantes tienen más de 2 quilates (carat > 2)?",
+    "expected_answer_contains": ["1889"],
+    "expected_sql_pattern": "COUNT.*WHERE.*carat.*>.*2",
+    "category": "filter",
+    "verified_value": "SELECT COUNT(*) FROM datasets.ds_6f233fa79bca4a5aaf48f443c60607f7 WHERE carat > 2 -> 1889, verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "diamonds-04",
+    "dataset_name": "Diamantes: precios y quilates",
+    "dataset_lookup_name": "diamantes_eval",
+    "question": "¿Qué nivel de claridad (clarity) tiene el precio promedio más alto?",
+    "expected_answer_contains": ["SI2", "5063"],
+    "expected_sql_pattern": "AVG.*price.*GROUP BY.*clarity.*ORDER BY.*DESC",
+    "category": "groupby",
+    "verified_value": "SELECT clarity, ROUND(AVG(price)::numeric,2) FROM datasets.ds_6f233fa79bca4a5aaf48f443c60607f7 GROUP BY clarity ORDER BY 2 DESC -> SI2 con 5063.03 (n=9194) es el mas alto, contraintuitivo porque clarity no es el principal driver de precio (carat lo es); verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "diamonds-05",
+    "dataset_name": "Diamantes: precios y quilates",
+    "dataset_lookup_name": "diamantes_eval",
+    "question": "¿Los diamantes con corte Fair son en promedio más caros o más baratos que los de corte Ideal?",
+    "expected_answer_contains": ["4358", "3457"],
+    "expected_sql_pattern": "AVG.*price.*GROUP BY.*cut",
+    "category": "comparison",
+    "verified_value": "Fair=4358.76 > Ideal=3457.54, es decir Fair es MAS CARO en promedio (efecto de confusion con carat, los Fair tienden a ser piedras mas grandes); verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "diamonds-06",
+    "dataset_name": "Diamantes: precios y quilates",
+    "dataset_lookup_name": "diamantes_eval",
+    "question": "¿Cuál es el número de certificado GIA de cada diamante?",
+    "expected_answer_contains": ["no tengo", "no está disponible", "no puedo", "no cuento", "no existe"],
+    "expected_sql_pattern": "N/A - no hay columna de certificacion en el dataset (carat, cut, color, clarity, depth, table, price, x, y, z)",
+    "category": "rejection",
+    "verified_value": "Columnas reales de datasets.ds_6f233fa79bca4a5aaf48f443c60607f7: carat, cut, color, clarity, depth, table, price, x, y, z - no existe ningun campo de certificacion/ID; verificado con information_schema.columns el 2026-08-16"
+  },
+  {
+    "id": "titanic-01",
+    "dataset_name": "Titanic: pasajeros",
+    "dataset_lookup_name": "titanic_eval",
+    "question": "¿Cuál fue la tasa de supervivencia general de los pasajeros del Titanic?",
+    "expected_answer_contains": ["38.38", "38.4", "342"],
+    "expected_sql_pattern": "SUM.*survived.*COUNT.*\\*.*100",
+    "category": "aggregation",
+    "verified_value": "SELECT COUNT(*), SUM(survived) FROM datasets.ds_18bab9c43f9d438aa487da824b2c8d3a -> 891 total, 342 sobrevivientes = 38.38%, verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "titanic-02",
+    "dataset_name": "Titanic: pasajeros",
+    "dataset_lookup_name": "titanic_eval",
+    "question": "¿Cuál fue la tasa de supervivencia por sexo (hombres vs mujeres)?",
+    "expected_answer_contains": ["74", "18", "female", "male"],
+    "expected_sql_pattern": "GROUP BY.*sex",
+    "category": "groupby",
+    "verified_value": "SELECT sex, 100.0*SUM(survived)/COUNT(*) FROM datasets.ds_18bab9c43f9d438aa487da824b2c8d3a GROUP BY sex -> female 74.20% (233/314), male 18.89% (109/577); verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "titanic-03",
+    "dataset_name": "Titanic: pasajeros",
+    "dataset_lookup_name": "titanic_eval",
+    "question": "¿Cuántos pasajeros había en cada clase (pclass)?",
+    "expected_answer_contains": ["216", "184", "491"],
+    "expected_sql_pattern": "COUNT.*GROUP BY.*pclass",
+    "category": "groupby",
+    "verified_value": "SELECT pclass, COUNT(*) FROM datasets.ds_18bab9c43f9d438aa487da824b2c8d3a GROUP BY pclass -> clase1=216, clase2=184, clase3=491; verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "titanic-04",
+    "dataset_name": "Titanic: pasajeros",
+    "dataset_lookup_name": "titanic_eval",
+    "question": "¿Cuál fue la tarifa (fare) promedio pagada por clase, y qué clase pagó más en promedio?",
+    "expected_answer_contains": ["84.15", "20.66", "13.68"],
+    "expected_sql_pattern": "AVG.*fare.*GROUP BY.*pclass",
+    "category": "comparison",
+    "verified_value": "SELECT pclass, ROUND(AVG(fare)::numeric,2) FROM datasets.ds_18bab9c43f9d438aa487da824b2c8d3a GROUP BY pclass -> clase1=84.15 (la mas alta), clase2=20.66, clase3=13.68; verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "titanic-05",
+    "dataset_name": "Titanic: pasajeros",
+    "dataset_lookup_name": "titanic_eval",
+    "question": "¿Cuál era la nacionalidad de cada pasajero del Titanic?",
+    "expected_answer_contains": ["no tengo", "no está disponible", "no puedo", "no cuento", "no existe"],
+    "expected_sql_pattern": "N/A - no hay columna de nacionalidad en el dataset (survived, pclass, sex, age, sibsp, parch, fare, embarked, class, who, adult_male, deck, embark_town, alive, alone)",
+    "category": "rejection",
+    "verified_value": "Columnas reales de datasets.ds_18bab9c43f9d438aa487da824b2c8d3a: survived, pclass, sex, age, sibsp, parch, fare, embarked, class, who, adult_male, deck, embark_town, alive, alone - no existe nacionalidad, solo puerto de embarque; verificado con information_schema.columns el 2026-08-16"
+  },
+  {
+    "id": "penguins-01",
+    "dataset_name": "Pingüinos de Palmer",
+    "dataset_lookup_name": "penguins_eval",
+    "question": "¿Cuál es el peso corporal (body_mass_g) promedio por especie de pingüino?",
+    "expected_answer_contains": ["3700", "3701", "3733", "5076"],
+    "expected_sql_pattern": "AVG.*body_mass_g.*GROUP BY.*species",
+    "category": "groupby",
+    "verified_value": "SELECT species, ROUND(AVG(body_mass_g)::numeric,2) FROM datasets.ds_30394fea2a464eab8f7ff32684fcd2a5 GROUP BY species -> Adelie=3700.66, Chinstrap=3733.09, Gentoo=5076.02; verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "penguins-02",
+    "dataset_name": "Pingüinos de Palmer",
+    "dataset_lookup_name": "penguins_eval",
+    "question": "¿Cuántos pingüinos hay de cada especie?",
+    "expected_answer_contains": ["152", "68", "124"],
+    "expected_sql_pattern": "COUNT.*GROUP BY.*species",
+    "category": "groupby",
+    "verified_value": "SELECT species, COUNT(*) FROM datasets.ds_30394fea2a464eab8f7ff32684fcd2a5 GROUP BY species -> Adelie=152, Chinstrap=68, Gentoo=124; verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "penguins-03",
+    "dataset_name": "Pingüinos de Palmer",
+    "dataset_lookup_name": "penguins_eval",
+    "question": "¿Cuál es el largo del pico (bill_length_mm) promedio de los pingüinos de la especie Adelie?",
+    "expected_answer_contains": ["38.79", "38.8"],
+    "expected_sql_pattern": "AVG.*bill_length_mm.*WHERE.*species.*=.*Adelie",
+    "category": "aggregation",
+    "verified_value": "SELECT ROUND(AVG(bill_length_mm)::numeric,2) FROM datasets.ds_30394fea2a464eab8f7ff32684fcd2a5 WHERE species='Adelie' -> 38.79 (n=152); verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "penguins-04",
+    "dataset_name": "Pingüinos de Palmer",
+    "dataset_lookup_name": "penguins_eval",
+    "question": "¿Qué especie tiene en promedio las aletas (flipper_length_mm) más largas, Adelie o Gentoo?",
+    "expected_answer_contains": ["Gentoo", "217"],
+    "expected_sql_pattern": "AVG.*flipper_length_mm.*WHERE.*species IN.*GROUP BY.*species",
+    "category": "comparison",
+    "verified_value": "SELECT species, ROUND(AVG(flipper_length_mm)::numeric,2) FROM datasets.ds_30394fea2a464eab8f7ff32684fcd2a5 WHERE species IN ('Adelie','Gentoo') GROUP BY species -> Gentoo=217.19 (mayor), Adelie=189.95; verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "penguins-05",
+    "dataset_name": "Pingüinos de Palmer",
+    "dataset_lookup_name": "penguins_eval",
+    "question": "¿Cuál es la dieta o tipo de alimentación de cada pingüino?",
+    "expected_answer_contains": ["no tengo", "no está disponible", "no puedo", "no cuento", "no existe"],
+    "expected_sql_pattern": "N/A - no hay columna de dieta en el dataset (species, island, bill_length_mm, bill_depth_mm, flipper_length_mm, body_mass_g, sex)",
+    "category": "rejection",
+    "verified_value": "Columnas reales de datasets.ds_30394fea2a464eab8f7ff32684fcd2a5: species, island, bill_length_mm, bill_depth_mm, flipper_length_mm, body_mass_g, sex - no existe informacion de dieta; verificado con information_schema.columns el 2026-08-16"
+  },
+  {
+    "id": "backlog-01",
+    "dataset_name": "Backlog de órdenes de trabajo",
+    "dataset_lookup_name": "backlog_eval",
+    "question": "¿Cuál es la ciudad con más órdenes de trabajo en el backlog?",
+    "expected_answer_contains": ["CALI", "39"],
+    "expected_sql_pattern": "COUNT.*GROUP BY.*ciudad.*ORDER BY.*DESC",
+    "category": "groupby",
+    "verified_value": "SELECT ciudad, COUNT(*) FROM datasets.ds_464cea3c194940b085f55d02b8e8a2db GROUP BY ciudad ORDER BY 2 DESC -> CALI con 39 ordenes es la mas alta; verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "backlog-02",
+    "dataset_name": "Backlog de órdenes de trabajo",
+    "dataset_lookup_name": "backlog_eval",
+    "question": "¿Cuál es el tipo de familia (tipo_fam) de orden de trabajo más frecuente en el backlog?",
+    "expected_answer_contains": ["Notificacion", "31"],
+    "expected_sql_pattern": "COUNT.*GROUP BY.*tipo_fam.*ORDER BY.*DESC",
+    "category": "groupby",
+    "verified_value": "SELECT tipo_fam, COUNT(*) FROM datasets.ds_464cea3c194940b085f55d02b8e8a2db GROUP BY tipo_fam ORDER BY 2 DESC -> Notificacion con 31 es el mas frecuente (Afectacion=19, Reclamacion=17, QOE=16, Degradacion=12); verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "backlog-03",
+    "dataset_name": "Backlog de órdenes de trabajo",
+    "dataset_lookup_name": "backlog_eval",
+    "question": "¿Cuántas órdenes de trabajo hay en el distrito 'TOLIMA DISTRITO 2.1'?",
+    "expected_answer_contains": ["13"],
+    "expected_sql_pattern": "COUNT.*WHERE.*distrito.*=.*TOLIMA DISTRITO 2.1",
+    "category": "filter",
+    "verified_value": "SELECT COUNT(*) FROM datasets.ds_464cea3c194940b085f55d02b8e8a2db WHERE distrito = 'TOLIMA DISTRITO 2.1' -> 13; verificado por psql el 2026-08-16"
+  },
+  {
+    "id": "backlog-04",
+    "dataset_name": "Backlog de órdenes de trabajo",
+    "dataset_lookup_name": "backlog_eval",
+    "question": "¿Cuál es el email o teléfono de contacto del cliente para cada orden de trabajo del backlog?",
+    "expected_answer_contains": ["no tengo", "no está disponible", "no puedo", "no cuento", "no existe"],
+    "expected_sql_pattern": "N/A - no hay columnas de contacto en el dataset (ot, t__restante, ciudad, trabajo, descripci_n, ubicaci_n, d_as, distrito, alarma_tabasco, fecha_creaci_n, tipo_fam, segmento, prioridad_p, aliado_real)",
+    "category": "rejection",
+    "verified_value": "Columnas reales de datasets.ds_464cea3c194940b085f55d02b8e8a2db (nombres normalizados desde el CSV original, con caracteres acentuados sustituidos por '_'): ot, t__restante, ciudad, trabajo, descripci_n, ubicaci_n, d_as, distrito, alarma_tabasco, fecha_creaci_n, tipo_fam, segmento, prioridad_p, aliado_real - ningun dato de contacto de cliente; verificado con information_schema.columns el 2026-08-16"
+  }
+]

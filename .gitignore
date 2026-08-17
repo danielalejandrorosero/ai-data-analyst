@@ -37,6 +37,7 @@ htmlcov/
 .coverage
 playwright-report/
 test-results/
+backend/tests/evals/last_run_results.json
 
 # OS / editores
 .DS_Store
