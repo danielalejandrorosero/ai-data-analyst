@@ -174,6 +174,11 @@ mejora de hardening, no como dependencia del MVP.
     deja el `Analysis` en `CANCELLED`. El endpoint de cancelación mismo fuerza esa
     transición cuando `job.abort()` confirma que abortó y el análisis sigue en un estado no
     terminal — sin esto, quedaba colgado en `QUEUED` para siempre.
+- **Memoria entre análisis del mismo dataset** (no pedida por el SRS, decisión propia — ver
+  [`adr/0010-agent-history-context.md`](./adr/0010-agent-history-context.md)): antes de
+  correr el agente, `orchestrator.py` antepone a la pregunta actual el texto de los últimos
+  `AGENT_HISTORY_MAX_ANALYSES` análisis `COMPLETED` del mismo dataset (pregunta/respuesta/SQL
+  ya auditados), como contexto de solo lectura — nunca re-ejecuta sus tool calls.
   - Cuando el job SÍ estaba corriendo, la cancelación llega como `asyncio.CancelledError`
     dentro de `run_analysis` (una `BaseException`, no `Exception` — no la captura el except
     genérico de errores inesperados) — se deja el `Analysis`/`AgentRun` en `CANCELLED` y se
@@ -250,7 +255,9 @@ mejora de hardening, no como dependencia del MVP.
   columna entera devuelve `numeric` en Postgres (para evitar overflow), que asyncpg decodifica
   como `Decimal` — `json.dumps` no lo serializa. Se normaliza en el único punto donde las
   filas salen de Postgres (`domain/agent/execution.py::_json_safe`, también cubre columnas
-  Date/DateTime), para que nada río abajo tenga que repetir el chequeo.
+  Date/DateTime), para que nada río abajo tenga que repetir el chequeo. La elección de
+  asyncpg como driver (en vez de psycopg3) está justificada en
+  [`adr/0008-async-postgres-driver.md`](./adr/0008-async-postgres-driver.md).
 
 ## 9. Observabilidad
 
@@ -266,10 +273,27 @@ trazable de punta a punta mediante `trace_id` (ver sección 9 del SRS para el de
 
 ## 11. RAG documental (Fase 6)
 
-El SRS menciona `search_documents`, pgvector y "RAG documental" en la arquitectura y el roadmap,
-pero no define RF numerados con criterios de aceptación para carga y permisos de documentos.
-**Antes de implementar la Fase 6, el SRS debe actualizarse con esos RF específicos.** Este
-documento no debe anticipar ni inventar esa especificación funcional.
+Especificado en SRS sección 3.7 (RF-060 a RF-065, agregados 2026-08-16 — este documento
+exigía escribirlos antes de implementar, y así se hizo).
+
+Diseño:
+
+- **Modelo de datos**: `documents` (por organización, con `status`
+  PROCESSING/READY/FAILED) y `document_chunks` (FK `ON DELETE CASCADE`, texto del
+  fragmento + `embedding vector(384)`). Los chunks no duplican `organization_id` — el
+  filtro de tenant ocurre al resolver el documento padre, misma excepción aceptada que
+  las tablas hijas de `analyses` (`.claude/rules/database.md`).
+- **Ingesta asíncrona**: la subida crea el documento en PROCESSING y encola un job ARQ
+  (`workers/`); el worker extrae texto (pypdf / python-docx / decodificación directa),
+  fragmenta por párrafos con solapamiento, embebe localmente
+  (`adr/0011-local-embeddings.md`) y deja el documento en READY o FAILED — nunca colgado.
+- **Búsqueda híbrida** (RF-062): top-k por similitud coseno en pgvector + top-k por
+  full-text de Postgres, fusionados con Reciprocal Rank Fusion. Expuesta en la API para
+  la UI y como tool `search_documents` del agente (RF-063), auditada en `tool_calls`.
+- **RNF-015 / RF-064**: los fragmentos recuperados se inyectan al agente delimitados y
+  marcados explícitamente como datos no confiables; ninguna instrucción embebida en un
+  documento pasa a formar parte de las políticas del agente (las tools autorizadas y sus
+  límites viven en el backend, no en el prompt).
 
 ## 12. Datasets: tablas físicas dinámicas (fuera del ciclo de vida de Alembic)
 

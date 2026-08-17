@@ -44,7 +44,13 @@ def get_agent_engine() -> AsyncEngine:
     AGENT_DATABASE_URL - el rol `agent_readonly` (RF-030), sin permisos
     sobre las tablas de negocio. Nunca se comparte con el ORM de la app.
     """
-    return create_async_engine(settings.agent_database_url, pool_pre_ping=True)
+    # RNF-004: mismo motivo que app/db/session.py::engine - cada analisis
+    # concurrente que llega a execute_readonly_sql toma una conexion de
+    # este pool tambien. Solo lo usa el worker (nunca la API), asi que no
+    # se multiplica por --workers de uvicorn.
+    return create_async_engine(
+        settings.agent_database_url, pool_pre_ping=True, pool_size=10, max_overflow=10
+    )
 
 
 async def execute_readonly_query(sql: str, *, max_rows: int) -> SqlExecutionResult:

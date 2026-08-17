@@ -2,8 +2,12 @@ import io
 import uuid
 
 import pytest
+from app.core.config import settings
+from app.db.models.agent_run import AgentRun, AgentRunStatus
 from app.db.models.analysis import Analysis, AnalysisStatus
+from app.db.models.dataset import Dataset
 from app.db.models.membership import Membership, Role
+from app.db.models.tool_call import ToolCall, ToolCallStatus
 from sqlalchemy import select
 
 
@@ -60,6 +64,27 @@ async def _register_and_import(client, unique_email: str):
     return token, org_id, dataset_id
 
 
+async def _import_csv(client, token: str, org_id: str, *, filename: str, content: bytes) -> str:
+    """Como _register_and_import pero con contenido de CSV a medida y
+    reusando una org/token existente - usado por los tests de export que
+    necesitan un dataset real con mas de _EVIDENCE_ROW_CAP (100) filas
+    para probar la re-ejecucion (RF-043)."""
+    import_response = await client.post(
+        "/api/datasets/import",
+        data={"organization_id": org_id},
+        files={"file": (filename, io.BytesIO(content), "text/csv")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    return import_response.json()["id"]
+
+
+async def _qualified_table_name(db_session, dataset_id: str) -> str:
+    dataset = (
+        await db_session.execute(select(Dataset).where(Dataset.id == uuid.UUID(dataset_id)))
+    ).scalar_one()
+    return f"datasets.{dataset.table_name}"
+
+
 async def _set_status_directly(db_session, analysis_id: str, status: AnalysisStatus) -> None:
     """Simula que el worker (nunca corre de verdad en estos tests, ver
     _stub_arq) ya termino de procesar el job."""
@@ -96,6 +121,33 @@ async def _add_artifact_directly(db_session, analysis_id: str, **overrides) -> s
     db_session.add(artifact)
     await db_session.commit()
     return str(artifact.id)
+
+
+async def _add_tool_call_directly(db_session, analysis_id: str, **overrides) -> str:
+    """Simula lo que _record_tool_call (domain/agent/tools.py) hubiera
+    dejado durante una corrida real - el worker nunca corre de verdad en
+    estos tests (ver _stub_arq)."""
+    agent_run = AgentRun(
+        analysis_id=uuid.UUID(analysis_id),
+        model="test-model",
+        status=AgentRunStatus.COMPLETED,
+        trace_id=f"trace-{uuid.uuid4().hex}",
+    )
+    db_session.add(agent_run)
+    await db_session.flush()
+
+    tool_call = ToolCall(
+        agent_run_id=agent_run.id,
+        tool=overrides.get("tool", "execute_readonly_sql"),
+        input_json=overrides.get("input_json", {"sql": "SELECT secret_value FROM datasets.ds_x"}),
+        input_hash=overrides.get("input_hash", "deadbeef"),
+        status=overrides.get("status", ToolCallStatus.SUCCESS),
+        error_message=overrides.get("error_message"),
+        duration_ms=overrides.get("duration_ms", 42),
+    )
+    db_session.add(tool_call)
+    await db_session.commit()
+    return str(tool_call.id)
 
 
 class TestCreateAnalysis:
@@ -288,9 +340,7 @@ class TestListAnalyses:
         )
         viewer_user_id = viewer_response.json()["user"]["id"]
         viewer_token = viewer_response.json()["access_token"]
-        db_session.add(
-            Membership(user_id=viewer_user_id, organization_id=org_id, role=Role.VIEWER)
-        )
+        db_session.add(Membership(user_id=viewer_user_id, organization_id=org_id, role=Role.VIEWER))
         await db_session.commit()
 
         response = await client.get(
@@ -301,9 +351,7 @@ class TestListAnalyses:
         assert response.status_code == 200
         assert len(response.json()) == 1
 
-    async def test_listing_analyses_of_another_organization_returns_403(
-        self, client, unique_email
-    ):
+    async def test_listing_analyses_of_another_organization_returns_403(self, client, unique_email):
         token, org_id, dataset_id = await _register_and_import(client, unique_email)
         await client.post(
             "/api/analyses",
@@ -536,9 +584,7 @@ class TestStreamAnalysisEvents:
 
 
 class TestListArtifacts:
-    async def test_lists_artifacts_created_for_the_analysis(
-        self, client, unique_email, db_session
-    ):
+    async def test_lists_artifacts_created_for_the_analysis(self, client, unique_email, db_session):
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
         create_response = await client.post(
             "/api/analyses",
@@ -638,13 +684,23 @@ class TestExportAnalysisResult:
             headers={"Authorization": f"Bearer {token}"},
         )
         analysis_id = create_response.json()["id"]
+        # Prefijo "[polars]" (run_analysis, no es SQL real): el export no
+        # re-ejecuta nada, exporta la evidencia persistida tal cual - lo
+        # que este test realmente cubre es la seleccion del ULTIMO
+        # resultado por defecto, no la re-ejecucion (ver
+        # TestExportAnalysisResult mas abajo para eso).
         await _set_result_directly(
             db_session,
             analysis_id,
             [
-                {"sql": "SELECT 1", "columns": ["a"], "rows": [[1]], "row_count": 1},
                 {
-                    "sql": "SELECT 2",
+                    "sql": "[polars] group_by=[] agg={}",
+                    "columns": ["a"],
+                    "rows": [[1]],
+                    "row_count": 1,
+                },
+                {
+                    "sql": "[polars] group_by=['a'] agg={'b': 'sum'}",
                     "columns": ["a", "b"],
                     "rows": [[1, 2], [3, 4]],
                     "row_count": 2,
@@ -660,6 +716,7 @@ class TestExportAnalysisResult:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("application/json")
         assert response.json() == [{"a": 1, "b": 2}, {"a": 3, "b": 4}]
+        assert "x-result-truncated" not in response.headers
 
     async def test_export_csv_content(self, client, unique_email, db_session):
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
@@ -672,7 +729,14 @@ class TestExportAnalysisResult:
         await _set_result_directly(
             db_session,
             analysis_id,
-            [{"sql": "SELECT 1", "columns": ["a", "b"], "rows": [[1, 2]], "row_count": 1}],
+            [
+                {
+                    "sql": "[polars] group_by=[] agg={}",
+                    "columns": ["a", "b"],
+                    "rows": [[1, 2]],
+                    "row_count": 1,
+                }
+            ],
         )
 
         response = await client.get(
@@ -697,8 +761,18 @@ class TestExportAnalysisResult:
             db_session,
             analysis_id,
             [
-                {"sql": "SELECT 1", "columns": ["a"], "rows": [[1]], "row_count": 1},
-                {"sql": "SELECT 2", "columns": ["a"], "rows": [[2]], "row_count": 1},
+                {
+                    "sql": "[polars] group_by=[] agg={}",
+                    "columns": ["a"],
+                    "rows": [[1]],
+                    "row_count": 1,
+                },
+                {
+                    "sql": "[polars] group_by=[] agg={}",
+                    "columns": ["a"],
+                    "rows": [[2]],
+                    "row_count": 1,
+                },
             ],
         )
 
@@ -798,3 +872,386 @@ class TestExportAnalysisResult:
             headers={"Authorization": f"Bearer {outsider_token}"},
         )
         assert response.status_code == 404
+
+    async def test_export_real_sql_query_returns_full_result_beyond_evidence_cap(
+        self, client, unique_email, db_session
+    ):
+        """RF-043: la evidencia persistida en Analysis.result_json esta
+        acotada a 100 filas (tools.py::_EVIDENCE_ROW_CAP), pero el export
+        de una consulta SQL real tiene que re-ejecutarla contra el
+        dataset y devolver el resultado completo (150 filas aca), no la
+        muestra acotada."""
+        token, org_id, _dataset_id = await _register_and_import(client, unique_email)
+        row_count = 150
+        csv_content = b"n\n" + "\n".join(str(i) for i in range(row_count)).encode()
+        dataset_id = await _import_csv(
+            client, token, org_id, filename="big.csv", content=csv_content
+        )
+        table = await _qualified_table_name(db_session, dataset_id)
+
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        # Simula lo que execute_readonly_sql hubiera persistido: solo una
+        # MUESTRA de 100 filas como evidencia, aunque el resultado real
+        # (row_count) tenga 150.
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [
+                {
+                    "sql": f"SELECT n FROM {table} ORDER BY n",
+                    "columns": ["n"],
+                    "rows": [[i] for i in range(100)],
+                    "row_count": row_count,
+                    "truncated": False,
+                    "evidence_truncated": True,
+                }
+            ],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "json"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == row_count
+        assert body[0] == {"n": 0}
+        assert body[-1] == {"n": row_count - 1}
+        assert "x-result-truncated" not in response.headers
+
+    async def test_export_polars_result_uses_persisted_evidence_unchanged(
+        self, client, unique_email, db_session
+    ):
+        """RF-043: una entrada de run_analysis (prefijo "[polars]") no es
+        SQL real, no se puede re-ejecutar - el export sigue sirviendo la
+        evidencia persistida tal cual, sin tocar la base de datos."""
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [
+                {
+                    "sql": "[polars] group_by=['a'] agg={'b': 'sum'}",
+                    "columns": ["a", "b_sum"],
+                    "rows": [[1, 2]],
+                    "row_count": 1,
+                    "truncated": False,
+                    "evidence_truncated": False,
+                }
+            ],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "json"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.json() == [{"a": 1, "b_sum": 2}]
+        assert "x-result-truncated" not in response.headers
+
+    async def test_export_real_sql_query_truncated_by_max_rows_sets_header(
+        self, client, unique_email, db_session, monkeypatch
+    ):
+        """RF-043: si la re-ejecucion contra Postgres sigue truncada (mas
+        filas reales que agent_sql_max_rows), el header
+        X-Result-Truncated tiene que comunicarlo - nunca meterlo adentro
+        del archivo exportado."""
+        monkeypatch.setattr(settings, "agent_sql_max_rows", 5)
+        token, org_id, _dataset_id = await _register_and_import(client, unique_email)
+        csv_content = b"n\n" + "\n".join(str(i) for i in range(10)).encode()
+        dataset_id = await _import_csv(
+            client, token, org_id, filename="trunc.csv", content=csv_content
+        )
+        table = await _qualified_table_name(db_session, dataset_id)
+
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [
+                {
+                    "sql": f"SELECT n FROM {table} ORDER BY n",
+                    "columns": ["n"],
+                    "rows": [[i] for i in range(5)],
+                    "row_count": 5,
+                    "truncated": False,
+                    "evidence_truncated": False,
+                }
+            ],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "json"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert len(response.json()) == 5
+        assert response.headers["x-result-truncated"] == "true"
+
+    async def test_export_polars_evidence_truncated_sets_header(
+        self, client, unique_email, db_session
+    ):
+        """RF-043: una entrada [polars] cuya evidencia persistida ya venia
+        acotada (evidence_truncated=true) tambien tiene que comunicar el
+        truncamiento por header, aunque no haya re-ejecucion posible."""
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [
+                {
+                    "sql": "[polars] group_by=['a'] agg={'b': 'sum'}",
+                    "columns": ["a", "b_sum"],
+                    "rows": [[1, 2]],
+                    "row_count": 150,
+                    "truncated": False,
+                    "evidence_truncated": True,
+                }
+            ],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "json"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.headers["x-result-truncated"] == "true"
+
+    async def test_export_real_sql_query_execution_failure_returns_404(
+        self, client, unique_email, db_session
+    ):
+        """RF-043: si la re-ejecucion contra Postgres falla (ej. la tabla
+        fisica ya no existe), el endpoint responde 404 controlado - nunca
+        un 500 crudo con detalles internos."""
+        token, _org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _set_result_directly(
+            db_session,
+            analysis_id,
+            [
+                {
+                    "sql": "SELECT * FROM datasets.ds_does_not_exist_xyz",
+                    "columns": ["a"],
+                    "rows": [[1]],
+                    "row_count": 1,
+                    "truncated": False,
+                    "evidence_truncated": False,
+                }
+            ],
+        )
+
+        response = await client.get(
+            f"/api/analyses/{analysis_id}/export",
+            params={"format": "json"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 404
+
+
+class TestListToolCalls:
+    """RF-052: GET /api/analyses/tool-calls - vista agregada Owner/Admin
+    de consultas y ejecuciones de agente de toda la organizacion."""
+
+    async def test_owner_can_list_tool_calls_of_other_users_in_same_org(
+        self, client, unique_email, db_session
+    ):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+
+        analyst_response = await client.post(
+            "/api/auth/register",
+            json={
+                "email": f"analyst-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Analyst Org",
+            },
+        )
+        analyst_user_id = analyst_response.json()["user"]["id"]
+        analyst_token = analyst_response.json()["access_token"]
+        db_session.add(
+            Membership(user_id=analyst_user_id, organization_id=org_id, role=Role.ANALYST)
+        )
+        await db_session.commit()
+
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {analyst_token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        tool_call_id = await _add_tool_call_directly(db_session, analysis_id)
+
+        response = await client.get(
+            "/api/analyses/tool-calls",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        entry = next(item for item in body if item["id"] == tool_call_id)
+        assert entry["analysis_id"] == analysis_id
+        assert entry["user_id"] == analyst_user_id
+        assert entry["tool"] == "execute_readonly_sql"
+        assert entry["status"] == "SUCCESS"
+
+    async def test_analyst_cannot_list_tool_calls(self, client, unique_email, db_session):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+
+        analyst_response = await client.post(
+            "/api/auth/register",
+            json={
+                "email": f"analyst-403-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Analyst 403 Org",
+            },
+        )
+        analyst_user_id = analyst_response.json()["user"]["id"]
+        analyst_token = analyst_response.json()["access_token"]
+        db_session.add(
+            Membership(user_id=analyst_user_id, organization_id=org_id, role=Role.ANALYST)
+        )
+        await db_session.commit()
+
+        response = await client.get(
+            "/api/analyses/tool-calls",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {analyst_token}"},
+        )
+        assert response.status_code == 403
+
+    async def test_viewer_cannot_list_tool_calls(self, client, unique_email, db_session):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+
+        viewer_response = await client.post(
+            "/api/auth/register",
+            json={
+                "email": f"viewer-toolcalls-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Viewer ToolCalls Org",
+            },
+        )
+        viewer_user_id = viewer_response.json()["user"]["id"]
+        viewer_token = viewer_response.json()["access_token"]
+        db_session.add(Membership(user_id=viewer_user_id, organization_id=org_id, role=Role.VIEWER))
+        await db_session.commit()
+
+        response = await client.get(
+            "/api/analyses/tool-calls",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+        assert response.status_code == 403
+
+    async def test_owner_of_another_organization_cannot_see_this_orgs_tool_calls(
+        self, client, unique_email, db_session
+    ):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _add_tool_call_directly(db_session, analysis_id)
+
+        outsider_response = await client.post(
+            "/api/auth/register",
+            json={
+                "email": f"outsider-toolcalls-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Outsider ToolCalls Org",
+            },
+        )
+        outsider_token = outsider_response.json()["access_token"]
+
+        response = await client.get(
+            "/api/analyses/tool-calls",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {outsider_token}"},
+        )
+        assert response.status_code == 403
+
+    async def test_list_tool_calls_without_token_is_rejected(self, client, unique_email):
+        _token, org_id, _dataset_id = await _register_and_import(client, unique_email)
+
+        response = await client.get(
+            "/api/analyses/tool-calls", params={"organization_id": org_id}
+        )
+        assert response.status_code == 401
+
+    async def test_raw_input_is_never_exposed_only_hash(self, client, unique_email, db_session):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        sensitive_sql = "SELECT * FROM datasets.ds_x WHERE email = 'someone-sensitive@example.com'"
+        await _add_tool_call_directly(
+            db_session,
+            analysis_id,
+            input_json={"sql": sensitive_sql},
+            input_hash="abc123hash",
+        )
+
+        response = await client.get(
+            "/api/analyses/tool-calls",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        raw_text = response.text
+        assert sensitive_sql not in raw_text
+        assert "input_json" not in raw_text
+        entry = response.json()[0]
+        assert entry["input_hash"] == "abc123hash"
+
+    async def test_pagination_limit_caps_results(self, client, unique_email, db_session):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        for _ in range(3):
+            await _add_tool_call_directly(db_session, analysis_id)
+
+        response = await client.get(
+            "/api/analyses/tool-calls",
+            params={"organization_id": org_id, "limit": 2},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert len(response.json()) == 2

@@ -96,3 +96,22 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
+
+// Lector crudo para el stream SSE de progreso de un analisis
+// (GET /analyses/{id}/events, backend/app/api/analyses.py). EventSource
+// nativo no puede mandar el header Authorization, asi que el stream se abre
+// con fetch - el parseo linea por linea vive en el hook que lo consume
+// (src/api/analyses.ts), esta funcion solo centraliza la apertura de la
+// conexion como el resto de las llamadas a la API.
+export async function openEventStream(
+  path: string,
+  token: string | null,
+  signal: AbortSignal,
+): Promise<ReadableStreamDefaultReader<Uint8Array> | null> {
+  const response = await fetch(buildUrl(path), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    signal,
+  })
+  if (!response.ok || !response.body) return null
+  return response.body.getReader()
+}

@@ -134,6 +134,39 @@ class TestRowLimitCapping:
         assert "999999" not in result
 
 
+class TestSelectWithoutFromBlocked:
+    """Un SELECT sin FROM no referencia ninguna tabla, asi que el chequeo de
+    `allowed_table` se cumple de forma vacua - eso permite ejecutar
+    cualquier funcion de Postgres accesible por el rol `agent_readonly`
+    (pg_sleep, version(), current_setting(), etc.) sin tocar el dataset."""
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT pg_sleep(1)",
+            "SELECT version()",
+            "SELECT current_setting('server_version')",
+            "SELECT 1",
+        ],
+    )
+    def test_select_without_from_is_rejected(self, sql):
+        with pytest.raises(SqlValidationError, match="FROM"):
+            validate_readonly_select(sql, allowed_table=ALLOWED, max_rows=1000)
+
+    def test_top_level_select_with_from_is_still_allowed_even_with_recursive_cte_error(self):
+        """El chequeo de FROM va antes del de WITH RECURSIVE: una consulta
+        con FROM en el nivel superior nunca debe caer en el error de 'sin
+        FROM', incluso si despues es rechazada por otra razon."""
+        with pytest.raises(SqlValidationError, match="RECURSIVE"):
+            validate_readonly_select(
+                "WITH RECURSIVE t(n) AS ("
+                "SELECT 1 UNION ALL SELECT n+1 FROM t"
+                ") SELECT COUNT(*) FROM t",
+                allowed_table=ALLOWED,
+                max_rows=1000,
+            )
+
+
 class TestRecursiveCteBlocked:
     def test_with_recursive_is_rejected(self):
         """Una CTE recursiva puede no referenciar ninguna tabla real (su
