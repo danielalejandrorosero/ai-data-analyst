@@ -84,6 +84,8 @@ export function useImportDataset(organizationId: string | undefined, token: stri
 }
 
 export function useRegisterConnection(organizationId: string | undefined, token: string | null) {
+  const queryClient = useQueryClient()
+
   return useMutation({
     mutationFn: (input: ExternalConnectionInput) =>
       apiFetch<ExternalConnection>('/datasets/connections', {
@@ -92,5 +94,20 @@ export function useRegisterConnection(organizationId: string | undefined, token:
         token,
         query: { organization_id: organizationId },
       }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['datasets', organizationId, 'connections'] })
+    },
+  })
+}
+
+export function useConnections(organizationId: string | undefined, token: string | null) {
+  return useQuery({
+    queryKey: ['datasets', organizationId, 'connections'],
+    queryFn: () =>
+      apiFetch<ExternalConnection[]>('/datasets/connections', {
+        token,
+        query: { organization_id: organizationId },
+      }),
+    enabled: organizationId !== undefined,
   })
 }

@@ -3,7 +3,7 @@ import ipaddress
 import socket
 import uuid
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -166,3 +166,18 @@ async def register_external_connection(
     await db.refresh(source)
 
     return source
+
+
+async def list_postgres_connections(
+    db: AsyncSession, *, organization_id: uuid.UUID
+) -> list[DataSource]:
+    """RF-010: lista las conexiones Postgres externas registradas por la
+    organizacion. Dado `uq_data_source_org_type` esto nunca devuelve mas de
+    un elemento hoy, pero devolver una lista es mas honesto que un
+    objeto-o-null y no ata la API al limite actual de 1 conexion."""
+    result = await db.execute(
+        select(DataSource).where(
+            DataSource.organization_id == organization_id, DataSource.type == "postgres"
+        )
+    )
+    return list(result.scalars().all())

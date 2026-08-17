@@ -141,6 +141,27 @@ async def register_connection(
     return ExternalConnectionOut.model_validate(source)
 
 
+@router.get("/connections", response_model=list[ExternalConnectionOut])
+async def list_connections(
+    organization_id: Annotated[uuid.UUID, Query()],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[ExternalConnectionOut]:
+    """RF-010. Cualquier miembro (cualquier rol) puede VER las conexiones
+    registradas - solo el registro (POST) esta restringido a OWNER/ADMIN.
+    `ExternalConnectionOut` nunca incluye password ni `secret_ref`."""
+    membership = await auth_service.get_membership(
+        db, user_id=current_user.id, organization_id=organization_id
+    )
+    if membership is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No autorizado")
+
+    sources = await connections_service.list_postgres_connections(
+        db, organization_id=organization_id
+    )
+    return [ExternalConnectionOut.model_validate(source) for source in sources]
+
+
 @router.get("/{dataset_id}/schema", response_model=DatasetSchemaOut)
 async def get_dataset_schema(
     dataset_id: uuid.UUID,

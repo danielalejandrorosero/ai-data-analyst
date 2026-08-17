@@ -125,14 +125,13 @@ describe('DatasetsPage', () => {
     expect(alert).toHaveTextContent('No se pudieron cargar los datasets.')
   })
 
-  it('hides upload and connect actions for a VIEWER role', async () => {
+  it('hides the upload action for a VIEWER role', async () => {
     installFetchMock({ role: 'VIEWER', datasets: DATASETS })
     renderWithProviders(<DatasetsPage />)
 
     await screen.findByText('ventas.csv')
 
     expect(screen.queryByText(/Arrastrá un CSV o Excel/)).not.toBeInTheDocument()
-    expect(screen.queryByText('Conectar PostgreSQL externo')).not.toBeInTheDocument()
   })
 
   it('opens the schema modal with columns when a dataset card is clicked', async () => {

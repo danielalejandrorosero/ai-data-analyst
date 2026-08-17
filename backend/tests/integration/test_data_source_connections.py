@@ -249,6 +249,142 @@ class TestRegisterConnection:
         assert response.status_code == 422
 
 
+class TestListConnections:
+    async def test_returns_empty_list_when_no_connection_registered(self, client, unique_email):
+        token, org_id = await _register_and_get_org(client, unique_email)
+
+        response = await client.get(
+            "/api/datasets/connections",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.json() == []
+
+    async def test_returns_the_registered_connection_without_secrets(
+        self, client, unique_email, _bypass_ssrf_guard
+    ):
+        token, org_id = await _register_and_get_org(client, unique_email)
+
+        register_response = await client.post(
+            "/api/datasets/connections",
+            params={"organization_id": org_id},
+            json={
+                "type": "postgres",
+                "name": "Test external DB",
+                "host": "localhost",
+                "port": 5432,
+                "database_name": "ai_data_analyst_test",
+                "username": "postgres",
+                "password": "postgres",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert register_response.status_code == 201
+
+        response = await client.get(
+            "/api/datasets/connections",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 1
+        connection = body[0]
+        assert connection["type"] == "postgres"
+        assert connection["name"] == "Test external DB"
+        assert connection["host"] == "localhost"
+        assert connection["port"] == 5432
+        assert connection["database_name"] == "ai_data_analyst_test"
+        assert connection["username"] == "postgres"
+        assert connection["status"] == "active"
+        assert "created_at" in connection
+        assert "password" not in connection
+        assert "secret_ref" not in connection
+
+    async def test_viewer_can_list_connections(
+        self, client, unique_email, db_session, _bypass_ssrf_guard
+    ):
+        from app.db.models.membership import Membership, Role
+
+        token, org_id = await _register_and_get_org(client, unique_email)
+        await client.post(
+            "/api/datasets/connections",
+            params={"organization_id": org_id},
+            json={
+                "type": "postgres",
+                "name": "Test external DB",
+                "host": "localhost",
+                "port": 5432,
+                "database_name": "ai_data_analyst_test",
+                "username": "postgres",
+                "password": "postgres",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        viewer_response = await client.post(
+            "/api/auth/register",
+            json={
+                "email": f"viewer-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Viewer Org",
+            },
+        )
+        viewer_user_id = viewer_response.json()["user"]["id"]
+        viewer_token = viewer_response.json()["access_token"]
+        db_session.add(Membership(user_id=viewer_user_id, organization_id=org_id, role=Role.VIEWER))
+        await db_session.commit()
+
+        response = await client.get(
+            "/api/datasets/connections",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+
+    async def test_returns_401_without_token(self, client, unique_email):
+        _token, org_id = await _register_and_get_org(client, unique_email)
+
+        response = await client.get(
+            "/api/datasets/connections",
+            params={"organization_id": org_id},
+        )
+        assert response.status_code == 401
+
+    async def test_tenant_isolation_other_organizations_connection_is_not_listed(
+        self, client, unique_email, _bypass_ssrf_guard
+    ):
+        token, org_id = await _register_and_get_org(client, unique_email)
+        await client.post(
+            "/api/datasets/connections",
+            params={"organization_id": org_id},
+            json={
+                "type": "postgres",
+                "name": "Test external DB",
+                "host": "localhost",
+                "port": 5432,
+                "database_name": "ai_data_analyst_test",
+                "username": "postgres",
+                "password": "postgres",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        other_token, other_org_id = await _register_and_get_org(
+            client, f"other-{unique_email}"
+        )
+
+        response = await client.get(
+            "/api/datasets/connections",
+            params={"organization_id": other_org_id},
+            headers={"Authorization": f"Bearer {other_token}"},
+        )
+        assert response.status_code == 200
+        assert response.json() == []
+
+
 class TestSsrfProtection:
     """Sin bypass del guard - estas prueban el guard SSRF de verdad, con
     IPs reales que no necesitan estar levantadas (se bloquean por rango

@@ -6,7 +6,6 @@ import { useDatasets } from '../../api/datasets'
 import { AppShell } from '../../components/AppShell'
 import { DatasetCard } from './DatasetCard'
 import { UploadDropzone } from './UploadDropzone'
-import { ConnectPostgresCard } from './ConnectPostgresCard'
 import { DatasetSchemaModal } from './DatasetSchemaModal'
 
 export function DatasetsPage() {
@@ -17,7 +16,6 @@ export function DatasetsPage() {
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null)
 
   const canImport = membership && ['OWNER', 'ADMIN', 'ANALYST'].includes(membership.role)
-  const canConnect = membership && ['OWNER', 'ADMIN'].includes(membership.role)
 
   return (
     <AppShell active="datasets">
@@ -65,10 +63,9 @@ export function DatasetsPage() {
         </div>
       )}
 
-      {(canImport || canConnect) && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {canImport && <UploadDropzone organizationId={membership?.organization_id} token={token} />}
-          {canConnect && <ConnectPostgresCard organizationId={membership?.organization_id} token={token} />}
+      {canImport && (
+        <div className="max-w-xl">
+          <UploadDropzone organizationId={membership?.organization_id} token={token} />
         </div>
       )}
 
