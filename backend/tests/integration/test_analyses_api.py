@@ -311,9 +311,7 @@ class TestListAnalyses:
         )
         viewer_user_id = viewer_response.json()["user"]["id"]
         viewer_token = viewer_response.json()["access_token"]
-        db_session.add(
-            Membership(user_id=viewer_user_id, organization_id=org_id, role=Role.VIEWER)
-        )
+        db_session.add(Membership(user_id=viewer_user_id, organization_id=org_id, role=Role.VIEWER))
         await db_session.commit()
 
         response = await client.get(
@@ -324,9 +322,7 @@ class TestListAnalyses:
         assert response.status_code == 200
         assert len(response.json()) == 1
 
-    async def test_listing_analyses_of_another_organization_returns_403(
-        self, client, unique_email
-    ):
+    async def test_listing_analyses_of_another_organization_returns_403(self, client, unique_email):
         token, org_id, dataset_id = await _register_and_import(client, unique_email)
         await client.post(
             "/api/analyses",
@@ -559,9 +555,7 @@ class TestStreamAnalysisEvents:
 
 
 class TestListArtifacts:
-    async def test_lists_artifacts_created_for_the_analysis(
-        self, client, unique_email, db_session
-    ):
+    async def test_lists_artifacts_created_for_the_analysis(self, client, unique_email, db_session):
         token, _org_id, dataset_id = await _register_and_import(client, unique_email)
         create_response = await client.post(
             "/api/analyses",
@@ -670,7 +664,12 @@ class TestExportAnalysisResult:
             db_session,
             analysis_id,
             [
-                {"sql": "[polars] group_by=[] agg={}", "columns": ["a"], "rows": [[1]], "row_count": 1},
+                {
+                    "sql": "[polars] group_by=[] agg={}",
+                    "columns": ["a"],
+                    "rows": [[1]],
+                    "row_count": 1,
+                },
                 {
                     "sql": "[polars] group_by=['a'] agg={'b': 'sum'}",
                     "columns": ["a", "b"],
@@ -701,7 +700,14 @@ class TestExportAnalysisResult:
         await _set_result_directly(
             db_session,
             analysis_id,
-            [{"sql": "[polars] group_by=[] agg={}", "columns": ["a", "b"], "rows": [[1, 2]], "row_count": 1}],
+            [
+                {
+                    "sql": "[polars] group_by=[] agg={}",
+                    "columns": ["a", "b"],
+                    "rows": [[1, 2]],
+                    "row_count": 1,
+                }
+            ],
         )
 
         response = await client.get(
@@ -726,8 +732,18 @@ class TestExportAnalysisResult:
             db_session,
             analysis_id,
             [
-                {"sql": "[polars] group_by=[] agg={}", "columns": ["a"], "rows": [[1]], "row_count": 1},
-                {"sql": "[polars] group_by=[] agg={}", "columns": ["a"], "rows": [[2]], "row_count": 1},
+                {
+                    "sql": "[polars] group_by=[] agg={}",
+                    "columns": ["a"],
+                    "rows": [[1]],
+                    "row_count": 1,
+                },
+                {
+                    "sql": "[polars] group_by=[] agg={}",
+                    "columns": ["a"],
+                    "rows": [[2]],
+                    "row_count": 1,
+                },
             ],
         )
 

@@ -142,6 +142,58 @@ class TestOrchestratorHappyPath:
         assert tool_names == {"inspect_schema", "execute_readonly_sql"}
         assert all(tc.status == ToolCallStatus.SUCCESS for tc in tool_calls)
 
+    async def test_inspect_schema_includes_column_annotations_when_present(
+        self, client, db_session, unique_email
+    ):
+        """RF-013: si el dataset tiene descripciones semanticas cargadas
+        por columna, inspect_schema se las tiene que pasar al agente como
+        parte del contexto - es el mecanismo real por el que "el agente
+        puede usar las anotaciones para mejorar el contexto"."""
+        org_id, user_id, dataset_id = await _register_and_import(client, unique_email)
+
+        dataset = (
+            await db_session.execute(select(Dataset).where(Dataset.id == uuid.UUID(dataset_id)))
+        ).scalar_one()
+        dataset.schema_json = [
+            {**column, "description": "Unidades vendidas en el periodo"}
+            if column["name"] == "units"
+            else column
+            for column in dataset.schema_json
+        ]
+        await db_session.commit()
+        await db_session.refresh(dataset)
+
+        analysis = Analysis(
+            organization_id=uuid.UUID(org_id),
+            user_id=uuid.UUID(user_id),
+            dataset_id=dataset.id,
+            question="Cuantas unidades hay de cada producto?",
+            status=AnalysisStatus.QUEUED,
+        )
+        db_session.add(analysis)
+        await db_session.flush()
+
+        table_name = f"datasets.{dataset.table_name}"
+        agent = build_agent(FunctionModel(_happy_path_script("", table_name)))
+        await run_analysis(db_session, analysis=analysis, dataset=dataset, agent=agent)
+
+        assert analysis.status == AnalysisStatus.COMPLETED
+
+        agent_run = (
+            await db_session.execute(select(AgentRun).where(AgentRun.analysis_id == analysis.id))
+        ).scalar_one()
+        inspect_call = (
+            await db_session.execute(
+                select(ToolCall).where(
+                    ToolCall.agent_run_id == agent_run.id, ToolCall.tool == "inspect_schema"
+                )
+            )
+        ).scalar_one()
+        columns = inspect_call.output_summary["columns"]
+        by_name = {c["name"]: c.get("description") for c in columns}
+        assert by_name["units"] == "Unidades vendidas en el periodo"
+        assert by_name["product"] is None
+
 
 def _multi_query_script(table_name: str, query_count: int):
     def script(messages, _info):
@@ -261,7 +313,7 @@ def _parallel_query_script(table_name: str, calls_in_one_turn: int):
                 parts=[
                     ToolCallPart(
                         tool_name="execute_readonly_sql",
-                        args={"sql": f"SELECT {i} AS n"},
+                        args={"sql": f"SELECT {i} AS n FROM {table_name} -- consulta {i}"},
                     )
                     for i in range(calls_in_one_turn)
                 ]
@@ -350,9 +402,7 @@ def _tool_call_script(table_name: str, tool_name: str, tool_args: dict):
 
 
 class TestRunAnalysisTool:
-    async def test_polars_group_by_agg_appends_new_evidence(
-        self, client, db_session, unique_email
-    ):
+    async def test_polars_group_by_agg_appends_new_evidence(self, client, db_session, unique_email):
         """RF-040: run_analysis post-procesa el resultado de la ultima
         consulta con Polars, sin ejecutar SQL nuevo, y queda como evidencia
         propia (no pisa la del execute_readonly_sql anterior)."""

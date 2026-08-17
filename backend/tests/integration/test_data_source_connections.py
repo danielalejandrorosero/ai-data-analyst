@@ -92,13 +92,17 @@ class TestRegisterConnection:
         assert response.status_code == 422
 
         count = (
-            await db_session.execute(
-                select(DataSource).where(
-                    DataSource.organization_id == uuid.UUID(org_id),
-                    DataSource.type == "postgres",
+            (
+                await db_session.execute(
+                    select(DataSource).where(
+                        DataSource.organization_id == uuid.UUID(org_id),
+                        DataSource.type == "postgres",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert count == []
 
     async def test_unreachable_host_is_rejected(self, client, unique_email):

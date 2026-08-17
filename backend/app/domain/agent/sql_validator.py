@@ -63,6 +63,19 @@ def validate_readonly_select(
     if statement.args.get("into"):
         raise SqlValidationError("SELECT INTO no esta permitido (crearia una tabla)")
 
+    if not statement.args.get("from_"):
+        # Un SELECT sin FROM (ej. "SELECT pg_sleep(30)", "SELECT version()",
+        # "SELECT current_setting('server_version')") no referencia ninguna
+        # tabla - el chequeo de `tables`/`disallowed` de abajo se cumple de
+        # forma vacua sin haber leido el dataset en absoluto, permitiendo
+        # ejecutar cualquier funcion de Postgres accesible por el rol
+        # `agent_readonly` (DoS de bajo costo, fingerprinting de la
+        # instancia). En este dominio (preguntas de negocio sobre UN
+        # dataset) un SELECT legitimo siempre lee de la tabla autorizada.
+        raise SqlValidationError(
+            "La consulta debe leer de la tabla del dataset (SELECT sin FROM no esta permitido)"
+        )
+
     with_clause = statement.args.get("with_")
     if with_clause is not None and with_clause.args.get("recursive"):
         # Una CTE recursiva puede no referenciar NINGUNA tabla real (su

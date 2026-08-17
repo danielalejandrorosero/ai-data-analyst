@@ -18,6 +18,13 @@ os.environ["AGENT_DATABASE_URL"] = (
 os.environ["LLM_API_KEY"] = ""
 os.environ["LLM_BASE_URL"] = ""
 os.environ["LLM_MODEL"] = ""
+# La suite entera corre cientos de requests seguidos de login/register/import
+# en la misma sesion (misma IP simulada de httpx, y unique_email no cambia
+# eso) - con el rate limiter prendido se pisarian entre si y romperian tests
+# que no tienen nada que ver con rate limiting. Se apaga por default aca y
+# se prende puntualmente (monkeypatch sobre app.core.rate_limit.limiter.enabled)
+# en los tests dedicados a probar el 429 (tests/integration/test_rate_limit.py).
+os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 import app.db.models  # noqa: F401 - registra los modelos en Base.metadata
 import pytest

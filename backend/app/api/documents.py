@@ -1,11 +1,22 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.arq_pool import get_arq_pool
 from app.core.config import settings
+from app.core.rate_limit import key_by_user, limiter
 from app.db.models.membership import Role
 from app.db.models.user import User
 from app.db.session import get_db
@@ -19,7 +30,9 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 
 @router.post("", response_model=DocumentOut, status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit(settings.rate_limit_expensive, key_func=key_by_user)
 async def upload_document(
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
     organization_id: Annotated[uuid.UUID, Form()],
@@ -72,7 +85,9 @@ async def list_documents(
 
 
 @router.get("/search", response_model=list[DocumentSearchResultOut])
+@limiter.limit(settings.rate_limit_expensive, key_func=key_by_user)
 async def search_documents(
+    request: Request,
     organization_id: Annotated[uuid.UUID, Query()],
     q: Annotated[str, Query(min_length=1, max_length=500)],
     db: Annotated[AsyncSession, Depends(get_db)],

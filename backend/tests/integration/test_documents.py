@@ -46,7 +46,9 @@ async def _register(client, email: str, org: str = "Docs Org"):
     )
 
 
-def _txt_file(content: str = "El margen bruto objetivo de la compania es 35%.", name: str = "politicas.txt"):
+def _txt_file(
+    content: str = "El margen bruto objetivo de la compania es 35%.", name: str = "politicas.txt"
+):
     return {"file": (name, io.BytesIO(content.encode()), "text/plain")}
 
 
@@ -200,9 +202,7 @@ class TestSearchDocuments:
         )
         assert response.status_code == 403
 
-    async def test_processing_documents_are_not_searchable(
-        self, client, db_session, unique_email
-    ):
+    async def test_processing_documents_are_not_searchable(self, client, db_session, unique_email):
         token, org_id, _ = await _register(client, unique_email)
         # Subido pero NUNCA procesado - sigue en PROCESSING.
         response = await client.post(
@@ -382,9 +382,7 @@ class TestSearchDocumentsAgentTool:
         assert second.startswith("ERROR")
         assert "limite" in second.lower()
 
-    async def test_missing_organization_errors_gracefully(
-        self, client, db_session, unique_email
-    ):
+    async def test_missing_organization_errors_gracefully(self, client, db_session, unique_email):
         token, org_id, user_id = await _register(client, unique_email)
         deps = await _tool_deps(client, db_session, token, org_id, user_id)
         deps.organization_id = None

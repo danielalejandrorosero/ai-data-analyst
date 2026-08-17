@@ -1,8 +1,10 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.db.models.user import User
 from app.db.session import get_db
 from app.domain.auth import service as auth_service
@@ -13,8 +15,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(settings.rate_limit_auth)
 async def register(
-    payload: RegisterRequest, db: Annotated[AsyncSession, Depends(get_db)]
+    request: Request, payload: RegisterRequest, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> TokenResponse:
     try:
         user_out, token = await auth_service.register(
@@ -32,8 +35,9 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit(settings.rate_limit_auth)
 async def login(
-    payload: LoginRequest, db: Annotated[AsyncSession, Depends(get_db)]
+    request: Request, payload: LoginRequest, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> TokenResponse:
     try:
         user_out, token = await auth_service.authenticate(
