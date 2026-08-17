@@ -1,5 +1,11 @@
 import io
+import uuid
 
+import sqlalchemy as sa
+from sqlalchemy import select
+
+from app.core.config import settings as app_settings
+from app.db.models.dataset import Dataset
 from app.db.models.membership import Membership, Role
 
 
@@ -14,6 +20,24 @@ async def _register(
 
 def _csv_file(content: str = "product,units\nWidget A,10\nWidget B,5\n"):
     return {"file": ("dataset.csv", io.BytesIO(content.encode()), "text/csv")}
+
+
+async def _physical_table_count(db_session) -> int:
+    """Cuenta tablas fisicas en el schema `datasets` (RNF-014) - se usa
+    antes/despues de un import rechazado para confirmar que el rechazo no
+    deja una tabla huerfana (los tests de esta suite corren secuenciales,
+    sin xdist, asi que el delta es confiable)."""
+    result = await db_session.execute(
+        sa.text("SELECT count(*) FROM pg_tables WHERE schemaname = 'datasets'")
+    )
+    return result.scalar_one()
+
+
+async def _dataset_rows_for_org(db_session, org_id: str) -> list[Dataset]:
+    result = await db_session.execute(
+        select(Dataset).where(Dataset.organization_id == uuid.UUID(org_id))
+    )
+    return list(result.scalars().all())
 
 
 class TestImportDataset:
@@ -78,6 +102,64 @@ class TestImportDataset:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 422
+
+    async def test_import_rejects_file_that_exceeds_max_size(
+        self, client, unique_email, db_session, monkeypatch
+    ):
+        # RNF-014: en vez de generar un archivo real de decenas de MB,
+        # bajamos el limite a 0MB - cualquier CSV no vacio ya lo supera.
+        monkeypatch.setattr(app_settings, "import_max_file_size_mb", 0)
+
+        register_response = await _register(client, unique_email)
+        body = register_response.json()
+        token = body["access_token"]
+        org_id = body["user"]["memberships"][0]["organization_id"]
+
+        tables_before = await _physical_table_count(db_session)
+
+        response = await client.post(
+            "/api/datasets/import",
+            data={"organization_id": org_id},
+            files=_csv_file(),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 422
+        assert "limite" in response.json()["detail"].lower()
+
+        # El rechazo no deja un dataset a medio crear: ni fila en
+        # `datasets`, ni tabla fisica huerfana en el schema `datasets`.
+        assert await _dataset_rows_for_org(db_session, org_id) == []
+        assert await _physical_table_count(db_session) == tables_before
+
+    async def test_import_rejects_file_that_exceeds_max_rows(
+        self, client, unique_email, db_session, monkeypatch
+    ):
+        # RNF-014: en vez de generar 200k filas reales, bajamos el limite
+        # a 3 filas y subimos un CSV con 5.
+        monkeypatch.setattr(app_settings, "import_max_rows", 3)
+
+        register_response = await _register(client, unique_email)
+        body = register_response.json()
+        token = body["access_token"]
+        org_id = body["user"]["memberships"][0]["organization_id"]
+
+        tables_before = await _physical_table_count(db_session)
+
+        csv_content = (
+            "product,units\n"
+            "Widget A,10\nWidget B,5\nWidget C,3\nWidget D,7\nWidget E,2\n"
+        )
+        response = await client.post(
+            "/api/datasets/import",
+            data={"organization_id": org_id},
+            files=_csv_file(csv_content),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"] == "El archivo supera el limite de 3 filas"
+
+        assert await _dataset_rows_for_org(db_session, org_id) == []
+        assert await _physical_table_count(db_session) == tables_before
 
     async def test_viewer_cannot_import_dataset(self, client, unique_email, db_session):
         register_response = await _register(client, unique_email)
