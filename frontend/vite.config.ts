@@ -10,5 +10,10 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
+    // e2e/ son specs de Playwright (otro test runner, corren con
+    // `pnpm test:e2e`) - sin esto Vitest los levanta tambien y explota
+    // porque Playwright Test no permite llamar a su propio `test()` fuera
+    // de su runner.
+    exclude: ['**/node_modules/**', '**/e2e/**'],
   },
 })

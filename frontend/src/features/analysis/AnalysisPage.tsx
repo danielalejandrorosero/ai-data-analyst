@@ -59,82 +59,93 @@ export function AnalysisPage() {
 
   return (
     <AppShell active="analisis">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-body text-3xl font-bold text-paper-100">Análisis</h1>
-          <p className="mt-1 font-body text-sm text-paper-400">
-            Un chat por dataset, con trazabilidad completa de cada consulta
-          </p>
+      <div className="flex h-full flex-col">
+        <div className="mb-6 flex shrink-0 flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="font-body text-3xl font-bold text-paper-100">Análisis</h1>
+            <p className="mt-1 font-body text-sm text-paper-400">
+              Un chat por dataset, con trazabilidad completa de cada consulta
+            </p>
+          </div>
+          {datasets.data && (
+            <DatasetSelector datasets={datasets.data} value={selectedDatasetId} onChange={setSelectedDatasetId} />
+          )}
         </div>
-        {datasets.data && (
-          <DatasetSelector datasets={datasets.data} value={selectedDatasetId} onChange={setSelectedDatasetId} />
+
+        {datasets.data && datasets.data.length === 0 && (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-ink-700 bg-ink-900/40 py-16 text-center">
+            <PackageOpen className="h-8 w-8 text-ink-400" aria-hidden="true" />
+            <p className="font-body text-sm text-paper-400">Todavía no hay datasets para analizar.</p>
+            <Link to="/datasets" className="font-body text-sm font-semibold text-signal-500 hover:text-signal-400">
+              Importar un dataset →
+            </Link>
+          </div>
+        )}
+
+        {datasets.data && datasets.data.length > 0 && (
+          <div className="flex min-h-0 flex-1 gap-6">
+            <DatasetChatList
+              datasets={datasets.data}
+              analyses={analyses.data ?? []}
+              activeDatasetId={selectedDatasetId}
+              onSelect={setSelectedDatasetId}
+            />
+
+            {/* Solo esta columna scrollea - el input de abajo (shrink-0,
+                fuera del contenedor scrolleable) queda siempre visible sin
+                importar cuan largo sea el chat. */}
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex-1 overflow-y-auto">
+                <div className="flex flex-col gap-6 pb-4">
+                  {thread.length > visibleThread.length && (
+                    <p className="text-center font-mono text-xs text-ink-400">
+                      Mostrando los últimos {MAX_RENDERED} de {thread.length} análisis de este chat
+                    </p>
+                  )}
+
+                  {visibleThread.length === 0 && (
+                    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-ink-700 bg-ink-900/40 py-16 text-center">
+                      <Sparkles className="h-8 w-8 text-ink-400" aria-hidden="true" />
+                      <p className="font-body text-sm text-paper-400">Hacé tu primera pregunta sobre este dataset.</p>
+                    </div>
+                  )}
+
+                  {visibleThread.map((analysis) => (
+                    <AnalysisRunCard
+                      key={analysis.id}
+                      analysisId={analysis.id}
+                      token={token}
+                      canCancel={!!canAnalyze}
+                    />
+                  ))}
+
+                  <div ref={bottomRef} aria-hidden="true" />
+                </div>
+              </div>
+
+              <div className="shrink-0 pt-4">
+                {canAnalyze ? (
+                  <QuestionInput
+                    disabled={!selectedDatasetId}
+                    submitting={createAnalysis.isPending}
+                    onSubmit={handleAsk}
+                  />
+                ) : (
+                  <p className="font-mono text-xs text-paper-400">
+                    Tu rol ({membership?.role}) no tiene permiso para ejecutar análisis.
+                  </p>
+                )}
+
+                {createAnalysis.isError && (
+                  <p role="alert" className="mt-2 font-mono text-xs text-danger-500">
+                    No se pudo iniciar el análisis.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
         )}
       </div>
-
-      {datasets.data && datasets.data.length === 0 && (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-ink-700 bg-ink-900/40 py-16 text-center">
-          <PackageOpen className="h-8 w-8 text-ink-400" aria-hidden="true" />
-          <p className="font-body text-sm text-paper-400">Todavía no hay datasets para analizar.</p>
-          <Link to="/datasets" className="font-body text-sm font-semibold text-signal-500 hover:text-signal-400">
-            Importar un dataset →
-          </Link>
-        </div>
-      )}
-
-      {datasets.data && datasets.data.length > 0 && (
-        <div className="flex gap-6">
-          <DatasetChatList
-            datasets={datasets.data}
-            analyses={analyses.data ?? []}
-            activeDatasetId={selectedDatasetId}
-            onSelect={setSelectedDatasetId}
-          />
-
-          <div className="flex min-w-0 flex-1 flex-col gap-6">
-            {thread.length > visibleThread.length && (
-              <p className="text-center font-mono text-xs text-ink-400">
-                Mostrando los últimos {MAX_RENDERED} de {thread.length} análisis de este chat
-              </p>
-            )}
-
-            {visibleThread.length === 0 && (
-              <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-ink-700 bg-ink-900/40 py-16 text-center">
-                <Sparkles className="h-8 w-8 text-ink-400" aria-hidden="true" />
-                <p className="font-body text-sm text-paper-400">Hacé tu primera pregunta sobre este dataset.</p>
-              </div>
-            )}
-
-            {visibleThread.map((analysis) => (
-              <AnalysisRunCard
-                key={analysis.id}
-                analysisId={analysis.id}
-                token={token}
-                canCancel={!!canAnalyze}
-              />
-            ))}
-
-            <div ref={bottomRef} aria-hidden="true" />
-
-            {canAnalyze ? (
-              <QuestionInput
-                disabled={!selectedDatasetId}
-                submitting={createAnalysis.isPending}
-                onSubmit={handleAsk}
-              />
-            ) : (
-              <p className="font-mono text-xs text-paper-400">
-                Tu rol ({membership?.role}) no tiene permiso para ejecutar análisis.
-              </p>
-            )}
-
-            {createAnalysis.isError && (
-              <p role="alert" className="font-mono text-xs text-danger-500">
-                No se pudo iniciar el análisis.
-              </p>
-            )}
-          </div>
-        </div>
-      )}
     </AppShell>
   )
 }

@@ -33,7 +33,7 @@ export function QuestionInput({ disabled, submitting, disabledReason, onSubmit }
   return (
     <form
       onSubmit={handleSubmit}
-      className="sticky bottom-4 flex items-end gap-3 rounded-xl border border-ink-700 bg-ink-900 p-3 shadow-lg shadow-ink-950/50"
+      className="flex items-end gap-3 rounded-xl border border-ink-700 bg-ink-900 p-3 shadow-lg shadow-ink-950/50"
     >
       <TerminalSquare className="mb-2 h-4 w-4 shrink-0 text-signal-500" aria-hidden="true" />
       <textarea

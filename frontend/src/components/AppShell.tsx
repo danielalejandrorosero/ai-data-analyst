@@ -27,7 +27,7 @@ export function AppShell({ active, children }: AppShellProps) {
   const initials = (me.data?.email ?? '??').slice(0, 2).toUpperCase()
 
   return (
-    <div className="relative flex min-h-screen flex-col overflow-hidden bg-ink-950">
+    <div className="relative flex h-screen flex-col overflow-hidden bg-ink-950">
       <DotGridGlow />
       <header className="relative z-10 flex items-center justify-between border-b border-ink-700 px-8 py-4">
         <Logo />
@@ -46,8 +46,8 @@ export function AppShell({ active, children }: AppShellProps) {
         </button>
       </header>
 
-      <div className="relative z-10 flex flex-1">
-        <nav className="w-56 shrink-0 border-r border-ink-700 px-4 py-6">
+      <div className="relative z-10 flex min-h-0 flex-1">
+        <nav className="w-56 shrink-0 overflow-y-auto border-r border-ink-700 px-4 py-6">
           <ul className="flex flex-col gap-1">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon
@@ -76,7 +76,7 @@ export function AppShell({ active, children }: AppShellProps) {
           </ul>
         </nav>
 
-        <main className="flex-1 px-8 py-8">{children}</main>
+        <main className="flex-1 overflow-y-auto px-8 py-8">{children}</main>
       </div>
 
       <div className="relative z-10">

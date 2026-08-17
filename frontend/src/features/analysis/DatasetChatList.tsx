@@ -56,13 +56,13 @@ export function DatasetChatList({ datasets, analyses, activeDatasetId, onSelect 
   const entries = buildEntries(datasets, analyses)
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col gap-3 self-start rounded-xl border border-ink-700 bg-ink-900/40 p-4">
-      <p className="flex items-center gap-2 font-mono text-xs text-paper-400">
+    <aside className="flex w-72 shrink-0 flex-col gap-3 rounded-xl border border-ink-700 bg-ink-900/40 p-4">
+      <p className="flex shrink-0 items-center gap-2 font-mono text-xs text-paper-400">
         <MessagesSquare className="h-3.5 w-3.5" aria-hidden="true" />
         Chats por dataset
       </p>
 
-      <ul className="flex flex-col divide-y divide-ink-800 overflow-y-auto">
+      <ul className="flex min-h-0 flex-1 flex-col divide-y divide-ink-800 overflow-y-auto">
         {entries.map((entry) => (
           <li key={entry.dataset.id}>
             <button
