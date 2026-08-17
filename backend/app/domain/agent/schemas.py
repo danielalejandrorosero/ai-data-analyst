@@ -54,6 +54,28 @@ class AnalysisArtifactOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ToolCallAuditOut(BaseModel):
+    """RF-052: fila de la vista agregada Owner/Admin de tool calls de toda
+    la organizacion (GET /analyses/tool-calls). A diferencia de ToolCallOut
+    (usado dentro del detalle de UN analysis, RF-024), nunca expone
+    `input_json` crudo -- ese puede llevar valores literales de la
+    pregunta del usuario dentro del SQL generado. Se expone `input_hash`
+    (ya calculado y persistido por _record_tool_call en tools.py) como
+    referencia estable, igual que hace la auditoria de audit_events."""
+
+    id: uuid.UUID
+    tool: str
+    status: str
+    duration_ms: int
+    input_hash: str
+    error_message: str | None
+    created_at: datetime
+    analysis_id: uuid.UUID
+    user_id: uuid.UUID
+
+    model_config = {"from_attributes": True}
+
+
 class AnalysisOut(BaseModel):
     id: uuid.UUID
     dataset_id: uuid.UUID

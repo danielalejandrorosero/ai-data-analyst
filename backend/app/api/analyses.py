@@ -24,6 +24,7 @@ from app.domain.agent.schemas import (
     AnalysisCreateRequest,
     AnalysisListItemOut,
     AnalysisOut,
+    ToolCallAuditOut,
     ToolCallOut,
 )
 from app.domain.auth import service as auth_service
@@ -143,6 +144,57 @@ async def list_analyses(
         .order_by(Analysis.created_at.desc())
     )
     return [AnalysisListItemOut.model_validate(analysis) for analysis in result.scalars()]
+
+
+@router.get("/tool-calls", response_model=list[ToolCallAuditOut])
+async def list_tool_calls(
+    organization_id: Annotated[uuid.UUID, Query()],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[ToolCallAuditOut]:
+    """RF-052: vista agregada Owner/Admin de TODAS las consultas y
+    ejecuciones de agente de la organizacion, sin tener que entrar
+    analysis por analysis (eso ya lo cubre GET /analyses/{id} para
+    cualquier miembro, RF-051 - no toca esa restriccion de rol).
+
+    Registrada ANTES de GET /{analysis_id} adrede: si quedara despues,
+    Starlette matchearia "/tool-calls" contra el patron "/{analysis_id}"
+    primero y fallaria la validacion de UUID en vez de llegar aca.
+
+    Nunca expone `input_json` crudo (puede llevar literales de la
+    pregunta del usuario dentro del SQL generado) - solo `input_hash`,
+    ya calculado por _record_tool_call en domain/agent/tools.py."""
+    membership = await auth_service.get_membership(
+        db, user_id=current_user.id, organization_id=organization_id
+    )
+    if membership is None or membership.role not in (Role.OWNER, Role.ADMIN):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No autorizado")
+
+    result = await db.execute(
+        select(ToolCall, AgentRun.analysis_id, Analysis.user_id)
+        .join(AgentRun, ToolCall.agent_run_id == AgentRun.id)
+        .join(Analysis, AgentRun.analysis_id == Analysis.id)
+        .where(Analysis.organization_id == organization_id)
+        .order_by(ToolCall.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [
+        ToolCallAuditOut(
+            id=tool_call.id,
+            tool=tool_call.tool,
+            status=tool_call.status,
+            duration_ms=tool_call.duration_ms,
+            input_hash=tool_call.input_hash,
+            error_message=tool_call.error_message,
+            created_at=tool_call.created_at,
+            analysis_id=analysis_id,
+            user_id=user_id,
+        )
+        for tool_call, analysis_id, user_id in result.all()
+    ]
 
 
 @router.get("/{analysis_id}", response_model=AnalysisOut)

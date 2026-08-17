@@ -3,9 +3,11 @@ import uuid
 
 import pytest
 from app.core.config import settings
+from app.db.models.agent_run import AgentRun, AgentRunStatus
 from app.db.models.analysis import Analysis, AnalysisStatus
 from app.db.models.dataset import Dataset
 from app.db.models.membership import Membership, Role
+from app.db.models.tool_call import ToolCall, ToolCallStatus
 from sqlalchemy import select
 
 
@@ -119,6 +121,33 @@ async def _add_artifact_directly(db_session, analysis_id: str, **overrides) -> s
     db_session.add(artifact)
     await db_session.commit()
     return str(artifact.id)
+
+
+async def _add_tool_call_directly(db_session, analysis_id: str, **overrides) -> str:
+    """Simula lo que _record_tool_call (domain/agent/tools.py) hubiera
+    dejado durante una corrida real - el worker nunca corre de verdad en
+    estos tests (ver _stub_arq)."""
+    agent_run = AgentRun(
+        analysis_id=uuid.UUID(analysis_id),
+        model="test-model",
+        status=AgentRunStatus.COMPLETED,
+        trace_id=f"trace-{uuid.uuid4().hex}",
+    )
+    db_session.add(agent_run)
+    await db_session.flush()
+
+    tool_call = ToolCall(
+        agent_run_id=agent_run.id,
+        tool=overrides.get("tool", "execute_readonly_sql"),
+        input_json=overrides.get("input_json", {"sql": "SELECT secret_value FROM datasets.ds_x"}),
+        input_hash=overrides.get("input_hash", "deadbeef"),
+        status=overrides.get("status", ToolCallStatus.SUCCESS),
+        error_message=overrides.get("error_message"),
+        duration_ms=overrides.get("duration_ms", 42),
+    )
+    db_session.add(tool_call)
+    await db_session.commit()
+    return str(tool_call.id)
 
 
 class TestCreateAnalysis:
@@ -1048,3 +1077,181 @@ class TestExportAnalysisResult:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 404
+
+
+class TestListToolCalls:
+    """RF-052: GET /api/analyses/tool-calls - vista agregada Owner/Admin
+    de consultas y ejecuciones de agente de toda la organizacion."""
+
+    async def test_owner_can_list_tool_calls_of_other_users_in_same_org(
+        self, client, unique_email, db_session
+    ):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+
+        analyst_response = await client.post(
+            "/api/auth/register",
+            json={
+                "email": f"analyst-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Analyst Org",
+            },
+        )
+        analyst_user_id = analyst_response.json()["user"]["id"]
+        analyst_token = analyst_response.json()["access_token"]
+        db_session.add(
+            Membership(user_id=analyst_user_id, organization_id=org_id, role=Role.ANALYST)
+        )
+        await db_session.commit()
+
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {analyst_token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        tool_call_id = await _add_tool_call_directly(db_session, analysis_id)
+
+        response = await client.get(
+            "/api/analyses/tool-calls",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        entry = next(item for item in body if item["id"] == tool_call_id)
+        assert entry["analysis_id"] == analysis_id
+        assert entry["user_id"] == analyst_user_id
+        assert entry["tool"] == "execute_readonly_sql"
+        assert entry["status"] == "SUCCESS"
+
+    async def test_analyst_cannot_list_tool_calls(self, client, unique_email, db_session):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+
+        analyst_response = await client.post(
+            "/api/auth/register",
+            json={
+                "email": f"analyst-403-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Analyst 403 Org",
+            },
+        )
+        analyst_user_id = analyst_response.json()["user"]["id"]
+        analyst_token = analyst_response.json()["access_token"]
+        db_session.add(
+            Membership(user_id=analyst_user_id, organization_id=org_id, role=Role.ANALYST)
+        )
+        await db_session.commit()
+
+        response = await client.get(
+            "/api/analyses/tool-calls",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {analyst_token}"},
+        )
+        assert response.status_code == 403
+
+    async def test_viewer_cannot_list_tool_calls(self, client, unique_email, db_session):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+
+        viewer_response = await client.post(
+            "/api/auth/register",
+            json={
+                "email": f"viewer-toolcalls-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Viewer ToolCalls Org",
+            },
+        )
+        viewer_user_id = viewer_response.json()["user"]["id"]
+        viewer_token = viewer_response.json()["access_token"]
+        db_session.add(Membership(user_id=viewer_user_id, organization_id=org_id, role=Role.VIEWER))
+        await db_session.commit()
+
+        response = await client.get(
+            "/api/analyses/tool-calls",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+        assert response.status_code == 403
+
+    async def test_owner_of_another_organization_cannot_see_this_orgs_tool_calls(
+        self, client, unique_email, db_session
+    ):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        await _add_tool_call_directly(db_session, analysis_id)
+
+        outsider_response = await client.post(
+            "/api/auth/register",
+            json={
+                "email": f"outsider-toolcalls-{unique_email}",
+                "password": "correcthorsebattery",
+                "organization_name": "Outsider ToolCalls Org",
+            },
+        )
+        outsider_token = outsider_response.json()["access_token"]
+
+        response = await client.get(
+            "/api/analyses/tool-calls",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {outsider_token}"},
+        )
+        assert response.status_code == 403
+
+    async def test_list_tool_calls_without_token_is_rejected(self, client, unique_email):
+        _token, org_id, _dataset_id = await _register_and_import(client, unique_email)
+
+        response = await client.get(
+            "/api/analyses/tool-calls", params={"organization_id": org_id}
+        )
+        assert response.status_code == 401
+
+    async def test_raw_input_is_never_exposed_only_hash(self, client, unique_email, db_session):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        sensitive_sql = "SELECT * FROM datasets.ds_x WHERE email = 'someone-sensitive@example.com'"
+        await _add_tool_call_directly(
+            db_session,
+            analysis_id,
+            input_json={"sql": sensitive_sql},
+            input_hash="abc123hash",
+        )
+
+        response = await client.get(
+            "/api/analyses/tool-calls",
+            params={"organization_id": org_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        raw_text = response.text
+        assert sensitive_sql not in raw_text
+        assert "input_json" not in raw_text
+        entry = response.json()[0]
+        assert entry["input_hash"] == "abc123hash"
+
+    async def test_pagination_limit_caps_results(self, client, unique_email, db_session):
+        token, org_id, dataset_id = await _register_and_import(client, unique_email)
+        create_response = await client.post(
+            "/api/analyses",
+            json={"dataset_id": dataset_id, "question": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        analysis_id = create_response.json()["id"]
+        for _ in range(3):
+            await _add_tool_call_directly(db_session, analysis_id)
+
+        response = await client.get(
+            "/api/analyses/tool-calls",
+            params={"organization_id": org_id, "limit": 2},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert len(response.json()) == 2
