@@ -29,25 +29,25 @@ export function AppShell({ active, children }: AppShellProps) {
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-ink-950">
       <DotGridGlow />
-      <header className="relative z-10 flex items-center justify-between border-b border-ink-700 px-8 py-4">
+      <header className="relative z-10 flex items-center justify-between border-b border-ink-700 px-4 py-4 md:px-8">
         <Logo />
         <button
           type="button"
           onClick={logout}
-          className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal-500"
+          className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 hover:bg-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal-500"
           title="Cerrar sesión"
         >
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-ink-800 font-mono text-xs font-semibold text-signal-500">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink-800 font-mono text-xs font-semibold text-signal-500">
             {initials}
           </span>
-          <span className="font-body text-sm text-paper-100">
+          <span className="hidden max-w-[10rem] truncate font-body text-sm text-paper-100 sm:inline md:max-w-none">
             {membership?.organization_name ?? '—'}
           </span>
         </button>
       </header>
 
       <div className="relative z-10 flex min-h-0 flex-1">
-        <nav className="w-56 shrink-0 overflow-y-auto border-r border-ink-700 px-4 py-6">
+        <nav className="w-16 shrink-0 overflow-y-auto border-r border-ink-700 px-2 py-6 lg:w-56 lg:px-4">
           <ul className="flex flex-col gap-1">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon
@@ -56,12 +56,14 @@ export function AppShell({ active, children }: AppShellProps) {
                 <li key={item.key}>
                   <Link
                     to={item.href}
-                    className={`flex items-center gap-2.5 rounded-md px-3 py-2 font-body text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal-500 ${
+                    aria-label={item.label}
+                    title={item.label}
+                    className={`flex items-center justify-center gap-2.5 rounded-md px-3 py-2 font-body text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal-500 lg:justify-start ${
                       isActive ? 'bg-signal-500/10 text-signal-500' : 'text-paper-400 hover:bg-ink-900 hover:text-paper-100'
                     }`}
                   >
-                    <Icon className="h-4 w-4" aria-hidden="true" />
-                    {item.label}
+                    <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="hidden lg:inline">{item.label}</span>
                   </Link>
                 </li>
               )
@@ -69,7 +71,7 @@ export function AppShell({ active, children }: AppShellProps) {
           </ul>
         </nav>
 
-        <main className="flex-1 overflow-y-auto px-8 py-8">{children}</main>
+        <main className="min-w-0 flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">{children}</main>
       </div>
 
       <div className="relative z-10">

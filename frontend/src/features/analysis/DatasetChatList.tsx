@@ -56,7 +56,7 @@ export function DatasetChatList({ datasets, analyses, activeDatasetId, onSelect 
   const entries = buildEntries(datasets, analyses)
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col gap-3 rounded-xl border border-ink-700 bg-ink-900/40 p-4">
+    <aside className="flex w-56 shrink-0 flex-col gap-3 rounded-xl border border-ink-700 bg-ink-900/40 p-4 md:w-64 lg:w-72">
       <p className="flex shrink-0 items-center gap-2 font-mono text-xs text-paper-400">
         <MessagesSquare className="h-3.5 w-3.5" aria-hidden="true" />
         Chats por dataset

@@ -45,7 +45,7 @@ export function QuestionInput({ disabled, submitting, disabledReason, onSubmit }
         placeholder={
           disabledReason ?? 'Preguntá algo sobre tus datos… (ej: ¿cuáles fueron las ventas por región el último trimestre?)'
         }
-        className="max-h-32 flex-1 resize-none bg-transparent py-1.5 font-mono text-sm text-paper-100 placeholder:text-paper-400 focus:outline-none disabled:cursor-not-allowed"
+        className="min-w-0 max-h-32 flex-1 resize-none bg-transparent py-1.5 font-mono text-sm text-paper-100 placeholder:text-paper-400 focus:outline-none disabled:cursor-not-allowed"
       />
       <button
         type="submit"
