@@ -27,6 +27,13 @@ class WorkerSettings:
     cron_jobs = [cron(purge_old_data_job, hour=3, minute=0)]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     job_timeout = settings.agent_sql_timeout_seconds * 8
+    # RNF-004 ("al menos 20 analisis simultaneos"): arq.Worker.max_jobs
+    # default es 10 y nunca se pisaba aca - confirmado con una corrida real
+    # de 20 analisis (backend/tests/integration/test_concurrent_analyses.py)
+    # que el worker los procesaba en dos tandas de ~10 (logs de arq
+    # mostrando `delayed=Ns` en la segunda tanda), no en paralelo real.
+    # 25 deja margen sobre el minimo pedido por el RNF.
+    max_jobs = 25
     # RF-025: sin esto, Job.abort() (POST /analyses/{id}/cancel) solo
     # afecta jobs que todavia estan en cola - para un job YA corriendo no
     # hace nada en absoluto (arq simplemente no lo mira). Confirmado
