@@ -23,6 +23,14 @@ CREATE SCHEMA IF NOT EXISTS datasets;
 
 REVOKE ALL ON SCHEMA public FROM agent_readonly;
 GRANT USAGE ON SCHEMA datasets TO agent_readonly;
-GRANT SELECT ON ALL TABLES IN SCHEMA datasets TO agent_readonly;
-ALTER DEFAULT PRIVILEGES IN SCHEMA datasets GRANT SELECT ON TABLES TO agent_readonly;
+-- Sin GRANT SELECT ON ALL TABLES ni ALTER DEFAULT PRIVILEGES a proposito
+-- (docs/security/threat-model.md, "Aislamiento de tenant en el schema
+-- datasets es de una sola capa"): el default privilege le daba a
+-- agent_readonly acceso de PERMISO DE POSTGRES a la tabla fisica de
+-- CUALQUIER organizacion apenas se creaba, dejando el aislamiento de
+-- tenant en una sola capa (el SQL validator, software). Cada tabla
+-- fisica nueva ahora recibe su GRANT SELECT explicito, una por una,
+-- desde domain/datasets/service.py::_grant_agent_readonly_select
+-- (import_file/reimport_file) - segunda capa de defensa real, igual
+-- que ya existe entre "public" y "datasets".
 EOSQL

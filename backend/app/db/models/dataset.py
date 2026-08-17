@@ -51,3 +51,11 @@ class Dataset(Base):
     # ya es JSONB.
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # RF-014: deteccion de cambios de esquema en un reimport. Ambos quedan
+    # NULL en el import original y solo se setean cuando el dataset pasa
+    # por `reimport_file` - NULL significa "nunca se reimporto", no "se
+    # reimporto sin cambios" (ese caso son listas vacias, no None).
+    schema_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_schema_change: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)

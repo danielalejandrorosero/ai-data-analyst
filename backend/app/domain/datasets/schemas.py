@@ -15,6 +15,20 @@ class ColumnSchema(BaseModel):
     description: str | None = None
 
 
+class SchemaChangeSummary(BaseModel):
+    """RF-014. Resumen del cambio de esquema detectado en un reimport.
+
+    `type_changed` es una lista de `{"column": ..., "from": ..., "to": ...}`.
+    Listas vacias significan "se reimporto pero el esquema no cambio" -
+    distinto de `Dataset.last_schema_change is None` ("nunca se reimporto"),
+    ver comentario en db/models/dataset.py.
+    """
+
+    added: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+    type_changed: list[dict[str, str]] = Field(default_factory=list)
+
+
 class DatasetOut(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
@@ -26,6 +40,8 @@ class DatasetOut(BaseModel):
     row_count: int
     column_count: int
     created_at: datetime
+    schema_updated_at: datetime | None = None
+    last_schema_change: SchemaChangeSummary | None = None
 
     model_config = {"from_attributes": True}
 

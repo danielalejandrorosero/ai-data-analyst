@@ -99,6 +99,8 @@ async def list_datasets(
             row_count=dataset.row_count,
             column_count=len(dataset.schema_json),
             created_at=dataset.created_at,
+            schema_updated_at=dataset.schema_updated_at,
+            last_schema_change=dataset.last_schema_change,
         )
         for dataset, source_type in rows
     ]
@@ -196,4 +198,47 @@ async def update_dataset_annotations(
         row_count=dataset.row_count,
         column_count=len(dataset.schema_json),
         created_at=dataset.created_at,
+        schema_updated_at=dataset.schema_updated_at,
+        last_schema_change=dataset.last_schema_change,
     )
+
+
+@router.post("/{dataset_id}/reimport", response_model=DatasetSchemaOut)
+@limiter.limit(settings.rate_limit_expensive, key_func=key_by_user)
+async def reimport_dataset(
+    request: Request,
+    dataset_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    file: Annotated[UploadFile, File()],
+) -> DatasetSchemaOut:
+    """RF-014: reemplaza el contenido de un dataset EXISTENTE con un
+    archivo nuevo (mismo tipo de archivo que `POST /datasets/import`) y
+    detecta cambios de esquema contra el catalogo previo. No crea un
+    dataset nuevo - mismo patron de auth que el import original."""
+    dataset = await datasets_service.get_dataset_by_id(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset no encontrado")
+
+    membership = await auth_service.get_membership(
+        db, user_id=current_user.id, organization_id=dataset.organization_id
+    )
+    if membership is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset no encontrado")
+    if membership.role not in (Role.OWNER, Role.ADMIN, Role.ANALYST):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No autorizado")
+
+    max_bytes = settings.import_max_file_size_mb * 1024 * 1024
+    content = await file.read(max_bytes + 1)
+    try:
+        return await datasets_service.reimport_file(
+            db,
+            dataset=dataset,
+            actor_id=current_user.id,
+            filename=file.filename or "dataset",
+            content=content,
+        )
+    except datasets_service.DatasetImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc

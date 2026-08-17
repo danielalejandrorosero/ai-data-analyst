@@ -53,22 +53,18 @@ async def _prepare_database():
         await conn.run_sync(Base.metadata.create_all)
         # El schema "datasets" recien se crea de nuevo cuando el primer
         # test importa un dataset (CreateSchema if_not_exists en
-        # domain/datasets/service.py) - pero eso NO reaplica los permisos
-        # de agent_readonly (fueron parte del schema que se acaba de
-        # dropear arriba). Re-crear el schema + permisos aca mismo, una
-        # sola vez por sesion de tests, evita que cada test de import
-        # tenga que preocuparse por esto.
+        # domain/datasets/service.py) - pero eso NO reaplica USAGE sobre
+        # el schema (fue parte del schema que se acaba de dropear arriba).
+        # A proposito NO se reotorga GRANT SELECT ON ALL TABLES ni
+        # ALTER DEFAULT PRIVILEGES aca (mismo criterio que
+        # infrastructure/postgres/init/002-agent-readonly-role.sh,
+        # docs/security/threat-model.md "Aislamiento de tenant en el
+        # schema datasets es de una sola capa") - el SELECT explicito por
+        # tabla lo otorga domain/datasets/service.py::_grant_agent_readonly_select
+        # en import_file/reimport_file, y los tests de integracion pasan
+        # por ese mismo codigo real, no por un atajo del fixture.
         await conn.execute(sa.text("CREATE SCHEMA IF NOT EXISTS datasets"))
         await conn.execute(sa.text("GRANT USAGE ON SCHEMA datasets TO agent_readonly"))
-        await conn.execute(
-            sa.text("GRANT SELECT ON ALL TABLES IN SCHEMA datasets TO agent_readonly")
-        )
-        await conn.execute(
-            sa.text(
-                "ALTER DEFAULT PRIVILEGES IN SCHEMA datasets "
-                "GRANT SELECT ON TABLES TO agent_readonly"
-            )
-        )
     yield
     await engine.dispose()
 
