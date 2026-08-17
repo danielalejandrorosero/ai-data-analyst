@@ -143,8 +143,8 @@ Verificación rápida: `curl http://localhost:8000/health/live` debe responder
 
 ## Demo / Screenshots
 
-Capturas reales contra la cuenta de prueba (`fase2test@example.com`), con datasets,
-análisis y documentos ya poblados.
+Capturas reales de la aplicación en uso, con datasets, análisis y documentos ya
+poblados.
 
 #### Login
 
