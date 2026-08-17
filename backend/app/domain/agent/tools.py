@@ -76,6 +76,7 @@ async def inspect_schema(ctx: RunContext[AgentDeps]) -> str:
         }
         for c in ctx.deps.columns
     ]
+    ctx.deps.schema_inspected = True
     await _record_tool_call(
         ctx.deps,
         tool="inspect_schema",
@@ -98,6 +99,23 @@ async def execute_readonly_sql(ctx: RunContext[AgentDeps], sql: str) -> str:
     rechazada, el motivo del error te dice que corregir - no reintentes
     con la misma consulta."""
     start = time.monotonic()
+
+    # RNF-021: guard real de software, no solo instruccion de prompt - ver
+    # comentario en AgentDeps.schema_inspected. No consume query_count (no
+    # es un intento de consulta real, es un rechazo previo a la reserva).
+    if not ctx.deps.schema_inspected:
+        await _record_tool_call(
+            ctx.deps,
+            tool="execute_readonly_sql",
+            input_payload={"sql": sql},
+            start=start,
+            status=ToolCallStatus.ERROR,
+            error_message="execute_readonly_sql llamado sin inspect_schema previo",
+        )
+        return (
+            "ERROR: llamá a inspect_schema primero para conocer las columnas "
+            "disponibles antes de generar SQL."
+        )
 
     # Chequeo + reserva SINCRONICOS, sin ningun await de por medio - es lo
     # que hace esto atomico frente a tool calls concurrentes del mismo

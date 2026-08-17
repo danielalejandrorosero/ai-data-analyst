@@ -55,6 +55,13 @@ class AgentDeps:
     # concurrentes verian todas el mismo valor "viejo" y se saltarian el
     # limite - ver tools.py.
     query_count: int = 0
+    # RNF-021: hasta ahora "llamá a inspect_schema antes de generar SQL"
+    # (RF-021) solo era una instruccion del prompt - el modelo podia
+    # ignorarla y execute_readonly_sql la ejecutaba igual. Este flag lo
+    # convierte en un guard real de software (el backend autoriza, no el
+    # modelo decide solo): se pone en True dentro de inspect_schema y
+    # execute_readonly_sql lo exige antes de tocar la DB.
+    schema_inspected: bool = False
     max_charts_per_run: int = 5
     # Mismo motivo que query_count: reserva sincronica antes de cualquier
     # await, para que create_chart tambien sea atomico frente a tool calls
