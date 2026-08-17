@@ -143,8 +143,24 @@ Verificación rápida: `curl http://localhost:8000/health/live` debe responder
 
 ## Demo / Screenshots
 
-Pendiente agregar capturas — ya existe UI funcional (login/registro en
-`http://localhost:5173`), pero todavía no se subieron imágenes al repo.
+Capturas reales contra la cuenta de prueba (`fase2test@example.com`), con datasets,
+análisis y documentos ya poblados.
+
+#### Login
+
+![Login](docs/screenshots/login.png)
+
+#### Datasets
+
+![Datasets](docs/screenshots/datasets.png)
+
+#### Análisis — chat con traza del agente
+
+![Análisis](docs/screenshots/analisis.png)
+
+#### Documentos
+
+![Documentos](docs/screenshots/documentos.png)
 
 ## Desarrollo local
 
