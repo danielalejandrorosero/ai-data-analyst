@@ -14,6 +14,11 @@ interface LoginInput {
   password: string
 }
 
+interface ChangePasswordInput {
+  current_password: string
+  new_password: string
+}
+
 export function useRegister() {
   const setToken = useAuthStore((s) => s.setToken)
   const queryClient = useQueryClient()
@@ -50,6 +55,15 @@ export function useMe() {
     queryFn: () => apiFetch<User>('/auth/me', { token }),
     enabled: token !== null,
     retry: false,
+  })
+}
+
+export function useChangePassword() {
+  const token = useAuthStore((s) => s.token)
+
+  return useMutation({
+    mutationFn: (input: ChangePasswordInput) =>
+      apiFetch<void>('/auth/me/password', { method: 'PATCH', body: input, token }),
   })
 }
 

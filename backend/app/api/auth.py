@@ -9,7 +9,13 @@ from app.db.models.user import User
 from app.db.session import get_db
 from app.domain.auth import service as auth_service
 from app.domain.auth.dependencies import get_current_user
-from app.domain.auth.schemas import LoginRequest, RegisterRequest, TokenResponse, UserOut
+from app.domain.auth.schemas import (
+    ChangePasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+    TokenResponse,
+    UserOut,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -57,3 +63,23 @@ async def me(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> UserOut:
     return await auth_service.build_user_out(db, current_user)
+
+
+@router.patch("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    payload: ChangePasswordRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> None:
+    try:
+        await auth_service.change_password(
+            db,
+            user=current_user,
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+        )
+    except auth_service.WrongPasswordError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña actual no es correcta",
+        ) from exc

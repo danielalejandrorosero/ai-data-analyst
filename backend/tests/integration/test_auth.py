@@ -99,6 +99,70 @@ class TestMe:
         assert response.json()["email"] == unique_email
 
 
+class TestChangePassword:
+    async def test_change_password_allows_login_with_new_password_and_not_old(
+        self, client, unique_email
+    ):
+        register_response = await _register(client, unique_email, password="correcthorsebattery")
+        token = register_response.json()["access_token"]
+
+        response = await client.patch(
+            "/api/auth/me/password",
+            json={"current_password": "correcthorsebattery", "new_password": "newpassword123"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 204
+
+        new_login = await client.post(
+            "/api/auth/login",
+            json={"email": unique_email, "password": "newpassword123"},
+        )
+        assert new_login.status_code == 200
+
+        old_login = await client.post(
+            "/api/auth/login",
+            json={"email": unique_email, "password": "correcthorsebattery"},
+        )
+        assert old_login.status_code == 401
+
+    async def test_change_password_with_wrong_current_password_is_rejected(
+        self, client, unique_email
+    ):
+        register_response = await _register(client, unique_email, password="correcthorsebattery")
+        token = register_response.json()["access_token"]
+
+        response = await client.patch(
+            "/api/auth/me/password",
+            json={"current_password": "wrongpassword", "new_password": "newpassword123"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code in (400, 401)
+
+        still_old = await client.post(
+            "/api/auth/login",
+            json={"email": unique_email, "password": "correcthorsebattery"},
+        )
+        assert still_old.status_code == 200
+
+    async def test_change_password_without_token_is_rejected(self, client):
+        response = await client.patch(
+            "/api/auth/me/password",
+            json={"current_password": "whatever123", "new_password": "newpassword123"},
+        )
+        assert response.status_code == 401
+
+    async def test_change_password_with_short_new_password_is_rejected(self, client, unique_email):
+        register_response = await _register(client, unique_email, password="correcthorsebattery")
+        token = register_response.json()["access_token"]
+
+        response = await client.patch(
+            "/api/auth/me/password",
+            json={"current_password": "correcthorsebattery", "new_password": "short"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 422
+
+
 class TestOrganizations:
     async def test_authenticated_user_can_create_additional_organization(
         self, client, unique_email

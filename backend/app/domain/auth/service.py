@@ -24,6 +24,10 @@ class InvalidCredentialsError(Exception):
     pass
 
 
+class WrongPasswordError(Exception):
+    pass
+
+
 async def get_user_by_id(db: AsyncSession, user_id: uuid.UUID) -> User | None:
     result = await db.execute(select(User).where(User.id == user_id))
     return result.scalar_one_or_none()
@@ -135,6 +139,31 @@ async def authenticate(db: AsyncSession, *, email: str, password: str) -> tuple[
     await db.commit()
 
     return user_out, create_access_token(user.id)
+
+
+async def change_password(
+    db: AsyncSession, *, user: User, current_password: str, new_password: str
+) -> None:
+    if user.password_hash is None or not verify_password(current_password, user.password_hash):
+        raise WrongPasswordError()
+
+    user.password_hash = hash_password(new_password)
+    db.add(user)
+    await db.flush()
+
+    # Igual que auth.login/auth.login_failed: el evento vive por tenant
+    # (audit_events.organization_id), se registra contra cada organizacion
+    # de la que el usuario es miembro.
+    memberships_result = await db.execute(select(Membership).where(Membership.user_id == user.id))
+    for membership in memberships_result.scalars():
+        await audit_service.record_event(
+            db,
+            organization_id=membership.organization_id,
+            actor_id=user.id,
+            action="user.change_password",
+        )
+
+    await db.commit()
 
 
 async def create_organization(db: AsyncSession, *, actor: User, name: str) -> OrganizationOut:
