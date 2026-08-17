@@ -17,15 +17,15 @@ python -c "import json; d=json.load(open('docs/api/openapi.json',encoding='utf-8
 (La API corre bajo `docker compose up -d api`. `openapi.json` también se puede explorar
 interactivamente en `http://localhost:8000/docs` mientras el contenedor está arriba.)
 
-## Superficie actual (22 endpoints reales)
+## Superficie actual (27 endpoints reales)
 
 | Área | Rutas |
 |---|---|
-| Auth | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` |
+| Auth | `POST /auth/register`, `POST /auth/login`, `GET /auth/me`, `PATCH /auth/me/password` |
 | Organizaciones | `POST /organizations` |
-| Datasets | `GET /datasets`, `POST /datasets/import`, `GET /datasets/{id}/schema`, `PATCH /datasets/{id}/annotations`, `POST /datasets/{id}/reimport`, `POST /datasets/connections` |
+| Datasets | `GET /datasets`, `POST /datasets/import`, `GET /datasets/{id}/schema`, `PATCH /datasets/{id}/annotations`, `POST /datasets/{id}/reimport`, `POST /datasets/connections`, `GET /datasets/connections` |
 | Documentos (RAG) | `GET /documents`, `POST /documents`, `GET /documents/search`, `DELETE /documents/{id}` |
-| Análisis | `POST /analyses`, `GET /analyses`, `GET /analyses/{id}`, `POST /analyses/{id}/cancel`, `GET /analyses/{id}/events` (SSE), `GET /analyses/{id}/artifacts`, `GET /analyses/{id}/export` |
+| Análisis | `POST /analyses`, `GET /analyses`, `GET /analyses/{id}`, `POST /analyses/{id}/cancel`, `GET /analyses/{id}/events` (SSE), `GET /analyses/{id}/artifacts`, `GET /analyses/{id}/export`, `GET /analyses/tool-calls` (Owner/Admin) |
 | Auditoría | `GET /audit-events` |
 | Salud (fuera de `/api`) | `GET /health/live`, `GET /health/ready` |
 

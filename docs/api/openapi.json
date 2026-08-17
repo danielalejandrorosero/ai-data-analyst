@@ -157,6 +157,45 @@
         ]
       }
     },
+    "/api/auth/me/password": {
+      "patch": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Change Password",
+        "operationId": "change_password_api_auth_me_password_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/organizations": {
       "post": {
         "tags": [
@@ -343,6 +382,57 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ExternalConnectionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "List Connections",
+        "description": "RF-010. Cualquier miembro (cualquier rol) puede VER las conexiones\nregistradas - solo el registro (POST) esta restringido a OWNER/ADMIN.\n`ExternalConnectionOut` nunca incluye password ni `secret_ref`.",
+        "operationId": "list_connections_api_datasets_connections_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Organization Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExternalConnectionOut"
+                  },
+                  "title": "Response List Connections Api Datasets Connections Get"
                 }
               }
             }
@@ -810,6 +900,82 @@
                     "$ref": "#/components/schemas/AnalysisListItemOut"
                   },
                   "title": "Response List Analyses Api Analyses Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analyses/tool-calls": {
+      "get": {
+        "tags": [
+          "analyses"
+        ],
+        "summary": "List Tool Calls",
+        "description": "RF-052: vista agregada Owner/Admin de TODAS las consultas y\nejecuciones de agente de la organizacion, sin tener que entrar\nanalysis por analysis (eso ya lo cubre GET /analyses/{id} para\ncualquier miembro, RF-051 - no toca esa restriccion de rol).\n\nRegistrada ANTES de GET /{analysis_id} adrede: si quedara despues,\nStarlette matchearia \"/tool-calls\" contra el patron \"/{analysis_id}\"\nprimero y fallaria la validacion de UUID en vez de llegar aca.\n\nNunca expone `input_json` crudo (puede llevar literales de la\npregunta del usuario dentro del SQL generado) - solo `input_hash`,\nya calculado por _record_tool_call en domain/agent/tools.py.",
+        "operationId": "list_tool_calls_api_analyses_tool_calls_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Organization Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ToolCallAuditOut"
+                  },
+                  "title": "Response List Tool Calls Api Analyses Tool Calls Get"
                 }
               }
             }
@@ -1484,6 +1650,26 @@
         ],
         "title": "Body_upload_document_api_documents_post"
       },
+      "ChangePasswordRequest": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "title": "Current Password"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "ChangePasswordRequest"
+      },
       "ColumnSchema": {
         "properties": {
           "name": {
@@ -2088,6 +2274,71 @@
           "user"
         ],
         "title": "TokenResponse"
+      },
+      "ToolCallAuditOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "tool": {
+            "type": "string",
+            "title": "Tool"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms"
+          },
+          "input_hash": {
+            "type": "string",
+            "title": "Input Hash"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "analysis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Analysis Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tool",
+          "status",
+          "duration_ms",
+          "input_hash",
+          "error_message",
+          "created_at",
+          "analysis_id",
+          "user_id"
+        ],
+        "title": "ToolCallAuditOut",
+        "description": "RF-052: fila de la vista agregada Owner/Admin de tool calls de toda\nla organizacion (GET /analyses/tool-calls). A diferencia de ToolCallOut\n(usado dentro del detalle de UN analysis, RF-024), nunca expone\n`input_json` crudo -- ese puede llevar valores literales de la\npregunta del usuario dentro del SQL generado. Se expone `input_hash`\n(ya calculado y persistido por _record_tool_call en tools.py) como\nreferencia estable, igual que hace la auditoria de audit_events."
       },
       "ToolCallOut": {
         "properties": {
