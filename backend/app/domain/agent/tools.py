@@ -64,7 +64,18 @@ async def inspect_schema(ctx: RunContext[AgentDeps]) -> str:
     """Devuelve las columnas y tipos disponibles del dataset. Llamala
     siempre antes de escribir una consulta SQL."""
     start = time.monotonic()
-    columns = [{"name": c.name, "type": c.type} for c in ctx.deps.columns]
+    # RF-013: la descripcion semantica de la columna (si el usuario la
+    # cargo) viaja explicita para que el agente la use como contexto -
+    # ColumnSchema.description es opcional, se omite cuando no hay
+    # anotacion en vez de mandar `null` sin necesidad.
+    columns = [
+        {
+            "name": c.name,
+            "type": c.type,
+            **({"description": c.description} if c.description else {}),
+        }
+        for c in ctx.deps.columns
+    ]
     await _record_tool_call(
         ctx.deps,
         tool="inspect_schema",
@@ -461,7 +472,7 @@ async def search_documents(ctx: RunContext[AgentDeps], query: str) -> str:
     # viven en el backend, no en este texto.
     fragments = [
         (
-            f"<<<fragmento doc=\"{r.document_filename}\" idx={r.chunk_index}>>>\n"
+            f'<<<fragmento doc="{r.document_filename}" idx={r.chunk_index}>>>\n'
             f"{r.content}\n<<<fin fragmento>>>"
         )
         for r in results

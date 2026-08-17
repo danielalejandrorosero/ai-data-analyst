@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.db.models.data_source import DataSource
 from app.db.models.dataset import Dataset
 from app.domain.audit import service as audit_service
-from app.domain.datasets.schemas import ColumnSchema, DatasetSchemaOut
+from app.domain.datasets.schemas import ColumnSchema, DatasetAnnotationUpdate, DatasetSchemaOut
 from app.domain.datasets.type_mapping import polars_dtype_to_catalog_type, polars_dtype_to_sa_type
 
 DATASET_SCHEMA_NAME = "datasets"
@@ -219,6 +219,42 @@ def build_dataset_schema_out(dataset: Dataset) -> DatasetSchemaOut:
     return DatasetSchemaOut(
         id=dataset.id,
         name=dataset.name,
+        description=dataset.description,
         row_count=dataset.row_count,
         columns=[ColumnSchema(**column) for column in dataset.schema_json],
     )
+
+
+async def update_dataset_annotations(
+    db: AsyncSession, *, dataset: Dataset, payload: DatasetAnnotationUpdate, actor_id: uuid.UUID
+) -> Dataset:
+    """RF-013: actualiza la descripcion del dataset y/o de columnas
+    puntuales de su schema_json. Solo toca lo que viene en el payload -
+    `description=None` en el payload significa "no tocar", no "borrar"
+    (mismo criterio que `column_descriptions=None`)."""
+    if payload.description is not None:
+        dataset.description = payload.description
+
+    if payload.column_descriptions:
+        updated_columns = []
+        for column in dataset.schema_json:
+            new_description = payload.column_descriptions.get(column["name"])
+            if new_description is not None:
+                updated_columns.append({**column, "description": new_description})
+            else:
+                updated_columns.append(column)
+        # Reasignacion completa (no mutacion in-place del dict existente)
+        # para que SQLAlchemy detecte el cambio en la columna JSONB - ver
+        # comentario del modelo en db/models/dataset.py.
+        dataset.schema_json = updated_columns
+
+    await audit_service.record_event(
+        db,
+        organization_id=dataset.organization_id,
+        actor_id=actor_id,
+        action="dataset.annotate",
+        target=f"dataset:{dataset.id}",
+    )
+    await db.commit()
+    await db.refresh(dataset)
+    return dataset

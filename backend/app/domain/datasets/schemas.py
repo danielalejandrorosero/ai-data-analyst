@@ -8,6 +8,11 @@ from pydantic import BaseModel, Field, SecretStr
 class ColumnSchema(BaseModel):
     name: str
     type: str
+    # RF-013: anotacion semantica opcional de la columna (texto libre,
+    # asignada por el usuario) - el agente la ve al inspeccionar el
+    # esquema (domain/agent/tools.py::inspect_schema) para mejorar su
+    # contexto sobre que significa la columna.
+    description: str | None = None
 
 
 class DatasetOut(BaseModel):
@@ -17,6 +22,7 @@ class DatasetOut(BaseModel):
     source_type: str
     source_extension: str | None
     name: str
+    description: str | None = None
     row_count: int
     column_count: int
     created_at: datetime
@@ -27,10 +33,20 @@ class DatasetOut(BaseModel):
 class DatasetSchemaOut(BaseModel):
     id: uuid.UUID
     name: str
+    description: str | None = None
     row_count: int
     columns: list[ColumnSchema]
 
     model_config = {"from_attributes": True}
+
+
+class DatasetAnnotationUpdate(BaseModel):
+    """RF-013. `column_descriptions` solo actualiza las columnas
+    presentes en el dict (matcheadas por `name` dentro de schema_json) -
+    las que no vengan no se tocan."""
+
+    description: str | None = None
+    column_descriptions: dict[str, str] | None = None
 
 
 class ExternalConnectionCreateRequest(BaseModel):
